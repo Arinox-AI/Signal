@@ -12,7 +12,8 @@ export type SourceId =
   | "nse"
   | "bse"
   | "investor_relations"
-  | "indian_api";
+  | "indian_api"
+  | "linkedin";
 export type SourceKey = SourceId | "gemini";
 export type SourceState = "success" | "empty" | "unavailable" | "rate_limited";
 export type ConfidenceLevel = "high" | "medium" | "low";
@@ -130,6 +131,40 @@ export interface NewsItem {
   publishedAt: string;
 }
 
+export interface OrgPerson {
+  name: string;
+  role: string | null;
+  tier: "founder" | "board" | "executive";
+  wikipediaUrl: string | null;
+  linkedinUrl: string | null;
+}
+
+export interface PersonActivity {
+  name: string;
+  role: string | null;
+  headlines: NewsItem[];
+}
+
+export interface OrgPeopleData {
+  people: OrgPerson[];
+  activity: PersonActivity[];
+  ownership: {
+    promoterPct: number | null;
+    publicPct: number | null;
+  };
+  headcount: {
+    total: number | null;
+    year: number | null;
+    samples: Array<{ year: number | null; total: number }>;
+  };
+  hiring: {
+    roles: Array<{ title: string; ai: boolean }>;
+    aiRoleCount: number;
+  };
+  aiNews: NewsItem[];
+  signal: string;
+}
+
 export interface CountryContext {
   name: string;
   officialName: string;
@@ -164,5 +199,6 @@ export interface IntelligenceReport {
   country: SourceResult<CountryContext>;
   brief: SourceResult<AiBrief>;
   publicListing: SourceResult<PublicListingData>;
+  orgPeople: SourceResult<OrgPeopleData>;
   generatedAt: string;
 }

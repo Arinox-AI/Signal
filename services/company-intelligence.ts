@@ -13,6 +13,7 @@ import type {
   GithubActivity,
   IntelligenceReport,
   NewsItem,
+  OrgPeopleData,
   SourceResult,
   SourceReference,
   WebsiteMetadata,
@@ -21,6 +22,7 @@ import { getCountryContext } from "@/services/country";
 import { fallbackBrief, generateBrief } from "@/services/gemini";
 import { getGithubActivity, GithubNotFoundError } from "@/services/github";
 import { getCompanyNews } from "@/services/news";
+import { getOrgPeopleIntelligence } from "@/services/org-people";
 import { getPublicListingIntelligence } from "@/services/public-listing/service";
 import { getWebsiteMetadata } from "@/services/website";
 import { getCompanyIdentity } from "@/services/wikipedia";
@@ -101,14 +103,32 @@ export const getCompanyIntelligence = cache(
             sourceEmpty("No headquarters country was available."),
           );
     const publicListingPromise = getPublicListingIntelligence(query, identity);
+    const orgPeoplePromise = publicListingPromise.then((publicListing) =>
+      getOrgPeopleIntelligence(
+        identity,
+        publicListing.state === "success" &&
+          publicListing.data.shareholding.state === "success"
+          ? publicListing.data.shareholding.data
+          : null,
+      )
+        .then(sourceSuccess)
+        .catch((error: unknown) =>
+          failure<OrgPeopleData>(
+            error,
+            "Org & people intelligence is unavailable.",
+          ),
+        ),
+    );
 
-    const [website, github, news, country, publicListing] = await Promise.all([
-      websitePromise,
-      githubPromise,
-      newsPromise,
-      countryPromise,
-      publicListingPromise,
-    ]);
+    const [website, github, news, country, publicListing, orgPeople] =
+      await Promise.all([
+        websitePromise,
+        githubPromise,
+        newsPromise,
+        countryPromise,
+        publicListingPromise,
+        orgPeoplePromise,
+      ]);
 
     const sources = mergeSourceReferences([
       ...identity.sourceReferences,
@@ -146,6 +166,13 @@ export const getCompanyIntelligence = cache(
             url: "https://restcountries.com/",
           }
         : null,
+      orgPeople.state === "success" && orgPeople.data.people.length
+        ? {
+            id: "linkedin",
+            label: "LinkedIn people search",
+            url: `https://www.linkedin.com/search/results/all/?keywords=${encodeURIComponent(identity.name)}`,
+          }
+        : null,
     ]);
 
     const briefData = await generateBrief(
@@ -179,6 +206,7 @@ export const getCompanyIntelligence = cache(
       country,
       brief,
       publicListing,
+      orgPeople,
       generatedAt: new Date().toISOString(),
     };
   },

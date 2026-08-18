@@ -6,6 +6,7 @@ import { CountryCard } from "@/components/report/country-card";
 import { GithubCard } from "@/components/report/github-card";
 import { Metrics } from "@/components/report/metrics";
 import { NewsGrid } from "@/components/report/news-grid";
+import { OrgPeopleView } from "@/components/report/org-people-view";
 import { PublicListingView } from "@/components/report/public-listing/public-listing-view";
 import { ReportHeader } from "@/components/report/report-header";
 import { ReportTabs } from "@/components/report/report-tabs";
@@ -75,6 +76,9 @@ export default async function CompanyPage({
                   <CountryCard result={report.country} />
                 </Reveal>
                 <Reveal delay={0.16} className="lg:col-span-12">
+                  <OrgPeopleView result={report.orgPeople} />
+                </Reveal>
+                <Reveal delay={0.2} className="lg:col-span-12">
                   <Timeline report={report} />
                 </Reveal>
               </div>
