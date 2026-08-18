@@ -14,12 +14,14 @@ import type {
   IntelligenceReport,
   NewsItem,
   SourceResult,
+  SourceReference,
   WebsiteMetadata,
 } from "@/lib/types/company";
 import { getCountryContext } from "@/services/country";
 import { fallbackBrief, generateBrief } from "@/services/gemini";
 import { getGithubActivity, GithubNotFoundError } from "@/services/github";
 import { getCompanyNews } from "@/services/news";
+import { getPublicListingIntelligence } from "@/services/public-listing/service";
 import { getWebsiteMetadata } from "@/services/website";
 import { getCompanyIdentity } from "@/services/wikipedia";
 
@@ -28,6 +30,25 @@ function failure<T>(error: unknown, fallback: string): SourceResult<T> {
     error instanceof Error ? error.message : fallback,
     error instanceof UpstreamError && error.rateLimited,
   );
+}
+
+function newsSearchUrl(
+  companyName: string,
+  countryName: string | null,
+): string {
+  const context = countryName ? ` "${countryName}"` : " company";
+  const query = encodeURIComponent(`"${companyName}"${context}`);
+  return `https://news.google.com/search?q=${query}&hl=en-US&gl=US&ceid=US:en`;
+}
+
+function mergeSourceReferences(
+  references: Array<SourceReference | null>,
+): SourceReference[] {
+  const byId = new Map<SourceReference["id"], SourceReference>();
+  for (const reference of references) {
+    if (reference) byId.set(reference.id, reference);
+  }
+  return [...byId.values()];
 }
 
 export const getCompanyIntelligence = cache(
@@ -79,16 +100,59 @@ export const getCompanyIntelligence = cache(
         : Promise.resolve(
             sourceEmpty("No headquarters country was available."),
           );
+    const publicListingPromise = getPublicListingIntelligence(query, identity);
 
-    const [website, github, news, country] = await Promise.all([
+    const [website, github, news, country, publicListing] = await Promise.all([
       websitePromise,
       githubPromise,
       newsPromise,
       countryPromise,
+      publicListingPromise,
+    ]);
+
+    const sources = mergeSourceReferences([
+      ...identity.sourceReferences,
+      ...(publicListing.state === "success" ? publicListing.data.sources : []),
+      identity.website
+        ? {
+            id: "website",
+            label: "Official company website",
+            url: identity.website,
+          }
+        : null,
+      {
+        id: "github",
+        label:
+          github.state === "success"
+            ? "GitHub organization"
+            : "GitHub organization search",
+        url:
+          github.state === "success"
+            ? github.data.url
+            : `https://github.com/search?q=${encodeURIComponent(identity.name)}&type=users`,
+      },
+      {
+        id: "news",
+        label: "Google News coverage",
+        url:
+          news.state === "success" && news.data[0]
+            ? news.data[0].url
+            : newsSearchUrl(identity.name, identity.countryName),
+      },
+      country.state === "success"
+        ? {
+            id: "country",
+            label: "REST Countries profile",
+            url: "https://restcountries.com/",
+          }
+        : null,
     ]);
 
     const briefData = await generateBrief(
       identity,
+      sources,
+      website.state === "success" ? website.data : null,
+      publicListing.state === "success" ? publicListing.data : null,
       news.state === "success" ? news.data : [],
       github.state === "success" ? github.data : null,
       country.state === "success" ? country.data : null,
@@ -108,11 +172,13 @@ export const getCompanyIntelligence = cache(
         .replace(/[^a-z0-9]+/g, "-")
         .replace(/^-|-$/g, ""),
       identity,
+      sources,
       website,
       github,
       news,
       country,
       brief,
+      publicListing,
       generatedAt: new Date().toISOString(),
     };
   },

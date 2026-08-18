@@ -9,6 +9,7 @@ Signal turns scattered public company data into one concise, source-aware intell
 - Industry-neutral identity resolution across Wikidata, the global GLEIF legal-entity index, public-web discovery, and official company domains
 - Multi-API fusion across GLEIF, Wikipedia, Wikidata, GitHub, Google News RSS, REST Countries, public website metadata, and Gemini
 - Live GitHub repository metrics and a fused news/development timeline
+- Public Listing tab for Indian NSE/BSE companies with price chart, peers, quarterly data, P&L, balance sheet, cash flow, ratios, shareholding, investor documents, and annual-report links
 - Adaptive report composition: companies with verified public developer activity receive repository metrics, while companies without it receive business context and an explicit source-coverage panel
 - Evidence-constrained AI summary with a deterministic non-AI fallback
 - Independent loading, empty, rate-limit, and failure states for every secondary source
@@ -28,11 +29,12 @@ Browser
                 │
         Typed orchestration service
                 │
-  ┌─────────────┼───────────────┬──────────────┐
+  ┌─────────────┼───────────────┬──────────────┬──────────────────┐
 GLEIF        GitHub          News RSS     REST Countries
 Wikidata     Public web      Website metadata     Gemini
 Wikipedia
-  └─────────────┴───────────────┴──────────────┘
+ Screener.in / NSE / BSE listing data
+  └─────────────┴───────────────┴──────────────┴──────────────────┘
                 │
        Normalized IntelligenceReport
 ```
@@ -63,6 +65,7 @@ The interface also uses a reduced-motion-aware Framer Motion reveal system acros
 | GLEIF legal entity  |         6 hours |
 | Wikipedia/Wikidata  | 24 hours–7 days |
 | REST Countries      |          7 days |
+| Screener listing    |      15 minutes |
 
 Requests have explicit timeouts, at most one retry, bounded backoff, and `Retry-After` awareness. GitHub, news, country, website, and Gemini failures remain local to their panels. If Gemini is unavailable, the report uses a clearly labelled source-derived summary.
 
@@ -104,6 +107,7 @@ Never commit `.env.local` or real credentials.
 - **REST Countries:** the old open v3 endpoint is deprecated and now returns the v5 response envelope. Signal uses the maintained v5 server API with Bearer authentication.
 - **Clearbit:** the documented Clearbit Logo endpoint is discontinued. Signal uses official website icons, Google favicon, and initials as a safe fallback chain.
 - **Gemini:** JSON is schema-validated. Missing keys, quota errors, invalid model output, and upstream failures all fall back to deterministic evidence text.
+- **Public listings:** Indian NSE/BSE coverage uses an independent server-side parser for Screener's public company search, chart endpoint, peer endpoint, financial tables, shareholding tables, and document links. These are unofficial endpoints and can change, so listing data is source-labelled and isolated from the core report.
 
 ## Verification
 

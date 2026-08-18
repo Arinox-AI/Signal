@@ -4,6 +4,7 @@ import { z } from "zod";
 
 import { normalizeCompanyName } from "@/lib/company-query";
 import { resilientFetch } from "@/lib/http/request";
+import { createCompanyProvenance } from "@/lib/provenance";
 import type { CompanyIdentity, CompanySuggestion } from "@/lib/types/company";
 
 const addressSchema = z.object({
@@ -156,16 +157,38 @@ export async function getLegalEntityIdentity(
   const creationYear = entity.creationDate
     ? Number(entity.creationDate.slice(0, 4)) || null
     : null;
+  const primarySource = {
+    id: "gleif" as const,
+    label: "GLEIF legal entity record",
+    url: record.links.self,
+  };
 
   return {
     name: entity.legalName.name,
     description,
     overview: `${entity.legalName.name} is a ${description.toLowerCase()} with Legal Entity Identifier ${record.attributes.lei}.${address ? ` Its registered headquarters is ${address}.` : ""}`,
     wikipediaUrl: record.links.self,
+    lei: record.attributes.lei,
     imageUrl: null,
     website: null,
     countryName,
     industry: null,
     foundedYear: creationYear,
+    primarySource,
+    sourceReferences: [primarySource],
+    confidence: {
+      level: "high",
+      label: "Legal entity verified",
+      reason: "Resolved directly from a unique Legal Entity Identifier.",
+      ambiguous: false,
+    },
+    provenance: createCompanyProvenance(["gleif"], "high", {
+      website: {
+        note: "The GLEIF record did not list an official website.",
+      },
+      industry: {
+        note: "GLEIF does not provide an operating industry for this record.",
+      },
+    }),
   };
 }

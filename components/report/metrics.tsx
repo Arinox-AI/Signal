@@ -22,6 +22,7 @@ export function Metrics({ report }: { report: IntelligenceReport }) {
     report.news,
     report.country,
     report.brief,
+    report.publicListing,
   ];
   const liveSources =
     sources.filter((source) => source.state === "success").length + 1;
@@ -61,7 +62,7 @@ export function Metrics({ report }: { report: IntelligenceReport }) {
           value: report.identity.countryName ?? "Unknown",
           icon: Globe2,
         },
-        { label: "Sources live", value: `${liveSources}/6`, icon: CircleCheck },
+        { label: "Sources live", value: `${liveSources}/7`, icon: CircleCheck },
         {
           label: "Synthesis",
           value:

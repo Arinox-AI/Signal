@@ -23,6 +23,7 @@ export default function CompanyLoading() {
             <Block className="h-4 w-full" />
           </div>
         </div>
+        <Block className="mt-8 h-12 max-w-md" />
         <div className="mt-12 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
           {Array.from({ length: 5 }, (_, index) => (
             <Block key={index} className="h-28" />

@@ -3,10 +3,12 @@ import "server-only";
 import { z } from "zod";
 
 import {
+  companyMatchRank,
   domainSearchTerm,
   extractDomain,
   isOrganizationDescription,
   normalizeCompanyName,
+  type CompanyMatchRank,
 } from "@/lib/company-query";
 import { resilientFetch } from "@/lib/http/request";
 import type { CompanySuggestion } from "@/lib/types/company";
@@ -22,6 +24,72 @@ const entitySearchSchema = z.object({
     }),
   ),
 });
+
+const listingClaimsSchema = z.object({
+  entities: z
+    .record(
+      z.string(),
+      z.object({
+        claims: z.record(z.string(), z.array(z.unknown())).optional(),
+      }),
+    )
+    .optional(),
+});
+
+/**
+ * Lists which wikidata items are listed companies. An entity counts as listed
+ * when it carries a stock-exchange (P414) or ISIN (P249) claim; both are
+ * batch-fetched in a single request.
+ */
+async function wikidataListedIds(ids: string[]): Promise<Set<string>> {
+  const url = new URL("https://www.wikidata.org/w/api.php");
+  url.search = new URLSearchParams({
+    action: "wbgetentities",
+    ids: ids.join("|"),
+    props: "claims",
+    format: "json",
+    origin: "*",
+  }).toString();
+  try {
+    const response = await resilientFetch(
+      url.toString(),
+      {},
+      { revalidate: 86_400, timeoutMs: 4_500 },
+    );
+    const payload = listingClaimsSchema.parse(await response.json());
+    return new Set(
+      Object.entries(payload.entities ?? {})
+        .filter(([, entity]) =>
+          ["P414", "P249"].some(
+            (claim) => (entity.claims?.[claim]?.length ?? 0) > 0,
+          ),
+        )
+        .map(([id]) => id),
+    );
+  } catch {
+    return new Set();
+  }
+}
+
+/**
+ * Orders suggestions for display: listed companies first (only they carry
+ * verified exchange data on the report page), then by name-match rank, then
+ * original order. Purely generic ordering — no company names are special-cased.
+ */
+export function orderSuggestions<
+  T extends { rank: CompanyMatchRank | null; listed?: boolean },
+>(items: T[]): T[] {
+  return items
+    .map((item, index) => ({ item, index }))
+    .sort(
+      (left, right) =>
+        Number(right.item.listed ?? false) -
+          Number(left.item.listed ?? false) ||
+        (left.item.rank ?? 4) - (right.item.rank ?? 4) ||
+        left.index - right.index,
+    )
+    .map(({ item }) => item);
+}
 
 async function searchWikidata(
   searchTerm: string,
@@ -44,7 +112,7 @@ async function searchWikidata(
   );
   const payload = entitySearchSchema.parse(await response.json());
   const normalizedSearch = normalizeCompanyName(searchTerm);
-  return payload.search
+  const ranked = payload.search
     .filter((item) => {
       const normalizedLabel = normalizeCompanyName(item.label);
       const relevantName =
@@ -52,13 +120,26 @@ async function searchWikidata(
         normalizedSearch.includes(normalizedLabel);
       return relevantName && isOrganizationDescription(item.description);
     })
+    .map((item) => ({ item, rank: companyMatchRank(searchTerm, item.label) }))
+    .filter((entry) => entry.rank !== null)
+    .sort((left, right) => (left.rank ?? 4) - (right.rank ?? 4))
+    .slice(0, 6);
+  const listedIds = await wikidataListedIds(ranked.map(({ item }) => item.id));
+  return orderSuggestions(
+    ranked.map(({ item, rank }) => ({
+      item,
+      rank,
+      listed: listedIds.has(item.id),
+    })),
+  )
     .slice(0, 4)
-    .map<CompanySuggestion>((item) => ({
+    .map<CompanySuggestion>(({ item, listed }) => ({
       id: item.id,
       name: item.label,
       description: item.description,
       query: item.label,
       source: "wikidata",
+      listed: listed || undefined,
     }));
 }
 

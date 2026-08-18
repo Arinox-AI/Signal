@@ -3,12 +3,13 @@ import "server-only";
 import { z } from "zod";
 
 import {
+  companyMatchRank,
   domainSearchTerm,
   extractDomain,
   isOrganizationDescription,
-  normalizeCompanyName,
 } from "@/lib/company-query";
 import { resilientFetch } from "@/lib/http/request";
+import { createCompanyProvenance } from "@/lib/provenance";
 import type { CompanyIdentity } from "@/lib/types/company";
 import { getLegalEntityIdentity } from "@/services/gleif";
 import { getWebsiteMetadata } from "@/services/website";
@@ -33,12 +34,14 @@ const summarySchema = z.object({
 
 type RecordValue = Record<string, unknown>;
 interface WikidataDetails {
+  sourceUrl: string | null;
   website: string | null;
   countryName: string | null;
   industry: string | null;
   foundedYear: number | null;
 }
 const EMPTY_DETAILS: WikidataDetails = {
+  sourceUrl: null,
   website: null,
   countryName: null,
   industry: null,
@@ -172,6 +175,7 @@ async function wikidataDetails(title: string): Promise<WikidataDetails> {
       ? inceptionValue.time
       : null;
   return {
+    sourceUrl: `https://www.wikidata.org/wiki/${page.pageprops.wikibase_item}`,
     website: typeof website === "string" ? website : null,
     countryName: countryId ? (labels[countryId] ?? null) : null,
     industry: industryId ? (labels[industryId] ?? null) : null,
@@ -206,15 +210,21 @@ export async function getCompanyIdentity(
   const entitySearch = entitySearchSchema.parse(
     await entitySearchResponse.json(),
   );
-  const normalizedEntityQuery = normalizeCompanyName(entityQuery);
-  const entityCandidate = entitySearch.search.find((item) => {
-    const normalizedLabel = normalizeCompanyName(item.label);
-    const nameMatches =
-      normalizedLabel === normalizedEntityQuery ||
-      normalizedLabel.startsWith(normalizedEntityQuery) ||
-      normalizedEntityQuery.startsWith(normalizedLabel);
-    return nameMatches && isOrganizationDescription(item.description);
-  });
+  // Identity matching is intentionally looser than listing matching: a
+  // rank-2/rank-3 candidate is acceptable here because the resolved identity
+  // is displayed to the user for confirmation, whereas listing data is
+  // attached silently. Exact (0) and scope-superset (1) matches are always
+  // preferred so the definite company comes first.
+  const rankedCandidates = entitySearch.search
+    .filter((item) => isOrganizationDescription(item.description))
+    .map((item) => ({
+      item,
+      rank: companyMatchRank(entityQuery, item.label),
+    }))
+    .filter((entry) => entry.rank !== null)
+    .sort((left, right) => (left.rank ?? 4) - (right.rank ?? 4));
+  const entityCandidate = rankedCandidates[0]?.item ?? null;
+  const exactMatch = rankedCandidates[0]?.rank === 0;
 
   let entityTitle: string | null = null;
   if (entityCandidate) {
@@ -256,16 +266,66 @@ export async function getCompanyIdentity(
         metadata.organizationDescription ??
         metadata.description ??
         `Organization operating the official domain ${metadata.hostname}`;
+      const confidence = metadata.organizationName ? "high" : "medium";
+      const primarySource = {
+        id: "website" as const,
+        label: "Official company website",
+        url: metadata.url,
+      };
       return {
         name,
         description,
         overview: description,
         wikipediaUrl: metadata.url,
+        lei: null,
         imageUrl: metadata.iconUrl,
         website: metadata.url,
         countryName: metadata.countryName,
         industry: metadata.industry,
         foundedYear: metadata.foundedYear,
+        primarySource,
+        sourceReferences: [primarySource],
+        confidence: {
+          level: confidence,
+          label:
+            confidence === "high"
+              ? "Official website verified"
+              : "Official domain match",
+          reason: metadata.organizationName
+            ? "The supplied domain published matching organization metadata."
+            : "The identity was inferred from the supplied official domain.",
+          ambiguous: confidence !== "high",
+        },
+        provenance: createCompanyProvenance(["website"], confidence, {
+          name: metadata.organizationName
+            ? undefined
+            : {
+                confidence: "medium",
+                note: "The company name was inferred from page metadata or the domain.",
+              },
+          countryName: metadata.countryName
+            ? undefined
+            : {
+                confidence: "low",
+                note: "The official website did not publish a headquarters country.",
+              },
+          industry: metadata.industry
+            ? undefined
+            : {
+                confidence: "low",
+                note: "The official website did not publish a structured industry.",
+              },
+          foundedYear: metadata.foundedYear
+            ? undefined
+            : {
+                confidence: "low",
+                note: "The official website did not publish a founding year.",
+              },
+          lei: {
+            confidence: "low",
+            note: "No Legal Entity Identifier was available from the website path.",
+          },
+        }),
       };
     }
     throw new Error(
@@ -280,17 +340,81 @@ export async function getCompanyIdentity(
   );
   const summary = summarySchema.parse(await summaryResponse.json());
   const details = await wikidataDetails(title).catch(() => EMPTY_DETAILS);
+  const wikipediaSource = {
+    id: "wikipedia" as const,
+    label: "Wikipedia company profile",
+    url: summary.content_urls.desktop.page,
+  };
+  const wikidataSource = {
+    id: "wikidata" as const,
+    label: "Wikidata structured record",
+    url:
+      details.sourceUrl ??
+      `https://www.wikidata.org/w/index.php?search=${encodeURIComponent(title)}`,
+  };
+  const confidence = exactMatch ? "high" : "medium";
 
   return {
     name: summary.title,
     description: summary.description,
     overview: summary.extract,
     wikipediaUrl: summary.content_urls.desktop.page,
+    lei: null,
     imageUrl:
       summary.originalimage?.source ?? summary.thumbnail?.source ?? null,
     website: details.website ?? null,
     countryName: details.countryName ?? null,
     industry: details.industry ?? null,
     foundedYear: details.foundedYear ?? null,
+    primarySource: wikipediaSource,
+    sourceReferences: [wikipediaSource, wikidataSource],
+    confidence: {
+      level: confidence,
+      label:
+        confidence === "high"
+          ? "Organization match verified"
+          : "Likely organization match",
+      reason: exactMatch
+        ? "The organization label matched exactly and has a confirmed English Wikipedia profile."
+        : "The organization label matched by name proximity and has a confirmed English Wikipedia profile.",
+      ambiguous: !exactMatch,
+    },
+    provenance: createCompanyProvenance(["wikipedia"], confidence, {
+      website: {
+        sourceIds: ["wikidata"],
+        confidence: details.website ? "high" : "low",
+        ...(details.website
+          ? {}
+          : { note: "No official website was listed in the Wikidata record." }),
+      },
+      countryName: {
+        sourceIds: ["wikidata"],
+        confidence: details.countryName ? "high" : "low",
+        ...(details.countryName
+          ? {}
+          : {
+              note: "No headquarters country was listed in the Wikidata record.",
+            }),
+      },
+      industry: {
+        sourceIds: ["wikidata"],
+        confidence: details.industry ? "high" : "low",
+        ...(details.industry
+          ? {}
+          : { note: "No industry was listed in the Wikidata record." }),
+      },
+      foundedYear: {
+        sourceIds: ["wikidata"],
+        confidence: details.foundedYear ? "high" : "low",
+        ...(details.foundedYear
+          ? {}
+          : { note: "No founding year was listed in the Wikidata record." }),
+      },
+      lei: {
+        sourceIds: ["wikidata"],
+        confidence: "low",
+        note: "The Wikipedia/Wikidata path did not resolve a Legal Entity Identifier.",
+      },
+    }),
   };
 }

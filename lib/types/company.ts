@@ -1,6 +1,57 @@
-export type SourceKey =
-  "wikipedia" | "website" | "github" | "news" | "country" | "gemini";
+import type { PublicListingData } from "@/lib/types/public-listing";
+
+export type SourceId =
+  | "gleif"
+  | "wikidata"
+  | "wikipedia"
+  | "website"
+  | "github"
+  | "news"
+  | "country"
+  | "screener"
+  | "nse"
+  | "bse"
+  | "investor_relations"
+  | "indian_api";
+export type SourceKey = SourceId | "gemini";
 export type SourceState = "success" | "empty" | "unavailable" | "rate_limited";
+export type ConfidenceLevel = "high" | "medium" | "low";
+
+export interface SourceReference {
+  id: SourceId;
+  label: string;
+  url: string;
+}
+
+export interface FieldProvenance {
+  sourceIds: SourceId[];
+  confidence: ConfidenceLevel;
+  note?: string;
+}
+
+export type CompanyIdentityField =
+  | "name"
+  | "description"
+  | "overview"
+  | "website"
+  | "countryName"
+  | "industry"
+  | "foundedYear"
+  | "lei";
+
+export type CompanyProvenance = Record<CompanyIdentityField, FieldProvenance>;
+
+export interface IdentityConfidence {
+  level: ConfidenceLevel;
+  label: string;
+  reason: string;
+  ambiguous: boolean;
+}
+
+export interface SignalCitation {
+  sourceId: SourceId;
+  url?: string;
+}
 
 export interface CompanySuggestion {
   id: string;
@@ -8,6 +59,7 @@ export interface CompanySuggestion {
   description: string;
   query: string;
   source: "wikidata" | "gleif" | "web" | "domain";
+  listed?: boolean;
 }
 
 export type SourceResult<T> =
@@ -24,11 +76,16 @@ export interface CompanyIdentity {
   description: string;
   overview: string;
   wikipediaUrl: string;
+  lei: string | null;
   imageUrl: string | null;
   website: string | null;
   countryName: string | null;
   industry: string | null;
   foundedYear: number | null;
+  primarySource: SourceReference;
+  sourceReferences: SourceReference[];
+  confidence: IdentityConfidence;
+  provenance: CompanyProvenance;
 }
 
 export interface WebsiteMetadata {
@@ -90,6 +147,7 @@ export interface AiBrief {
   signals: Array<{
     title: string;
     detail: string;
+    citations: SignalCitation[];
   }>;
   watchItem: string;
   generated: boolean;
@@ -99,10 +157,12 @@ export interface IntelligenceReport {
   query: string;
   slug: string;
   identity: CompanyIdentity;
+  sources: SourceReference[];
   website: SourceResult<WebsiteMetadata>;
   github: SourceResult<GithubActivity>;
   news: SourceResult<NewsItem[]>;
   country: SourceResult<CountryContext>;
   brief: SourceResult<AiBrief>;
+  publicListing: SourceResult<PublicListingData>;
   generatedAt: string;
 }

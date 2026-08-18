@@ -1,6 +1,7 @@
 import { ArrowUpRight, Eye, Sparkles } from "lucide-react";
 
 import { Panel } from "@/components/report/panel";
+import { SourceCitations } from "@/components/report/source-citations";
 import type { IntelligenceReport } from "@/lib/types/company";
 
 export function SummaryCard({ report }: { report: IntelligenceReport }) {
@@ -10,6 +11,7 @@ export function SummaryCard({ report }: { report: IntelligenceReport }) {
     report.github,
     report.news,
     report.country,
+    report.publicListing,
   ].filter((source) => source.state === "success").length;
 
   return (
@@ -31,7 +33,7 @@ export function SummaryCard({ report }: { report: IntelligenceReport }) {
         <div className="relative flex flex-wrap items-center gap-2 font-mono text-[9px] tracking-[0.14em] text-white/30 uppercase">
           <span>Decision brief</span>
           <span aria-hidden="true">·</span>
-          <span>{connectedSources}/4 live evidence paths</span>
+          <span>{connectedSources}/5 live evidence paths</span>
         </div>
         <h2 className="relative mt-4 max-w-3xl text-2xl leading-[1.12] font-medium tracking-[-0.04em] text-balance text-white sm:text-[2rem]">
           {brief?.headline ?? report.identity.description}
@@ -62,6 +64,10 @@ export function SummaryCard({ report }: { report: IntelligenceReport }) {
                   <p className="dossier-signal-detail mt-2 text-xs leading-5">
                     {signal.detail}
                   </p>
+                  <SourceCitations
+                    citations={signal.citations}
+                    sources={report.sources}
+                  />
                 </li>
               ))}
             </ol>
