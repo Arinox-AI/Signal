@@ -12,11 +12,14 @@ const stateMeta: Record<SourceState, { label: string; className: string }> = {
 
 export function SourceCoverageCard({ report }: { report: IntelligenceReport }) {
   const sources = [
-    { label: "Company record", state: "success" as const },
+    {
+      label: report.identity.primarySource.label,
+      state: "success" as const,
+    },
     { label: "Official website", state: report.website.state },
-    { label: "GitHub organization", state: report.github.state },
     { label: "Recent coverage", state: report.news.state },
     { label: "Country context", state: report.country.state },
+    { label: "Public listing", state: report.publicListing.state },
     { label: "Executive synthesis", state: report.brief.state },
   ];
   const connected = sources.filter(

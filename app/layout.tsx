@@ -15,7 +15,7 @@ export const metadata: Metadata = {
   applicationName: "Signal",
   keywords: [
     "company intelligence",
-    "GitHub activity",
+    "company leadership",
     "company news",
     "AI research",
   ],

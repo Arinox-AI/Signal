@@ -2,8 +2,9 @@ import "server-only";
 
 import { z } from "zod";
 
-import { normalizeCompanyName } from "@/lib/company-query";
+import { companyMatchRank } from "@/lib/company-query";
 import { resilientFetch } from "@/lib/http/request";
+import { createCompanyProvenance } from "@/lib/provenance";
 import type { CompanyIdentity, CompanySuggestion } from "@/lib/types/company";
 
 const addressSchema = z.object({
@@ -89,20 +90,16 @@ export async function searchLegalEntities(
     { revalidate: 21_600, timeoutMs: 5_000 },
   );
   const payload = searchResponseSchema.parse(await response.json());
-  const normalizedQuery = normalizeCompanyName(query);
 
   return payload.data
     .map((record) => {
       const name = record.attributes.entity.legalName.name;
-      const normalizedName = normalizeCompanyName(name);
-      const nameRank =
-        normalizedName === normalizedQuery
-          ? 0
-          : normalizedName.startsWith(normalizedQuery)
-            ? 1
-            : normalizedName.includes(normalizedQuery)
-              ? 2
-              : 3;
+      // Shared ranker (see PLAN §7): rank 0 (exact) and rank 1 (token
+      // superset within scope qualifiers) are the only acceptable matches.
+      // Prefix/containment matches are deliberately excluded — same-prefix
+      // legal entities (Reliance Industries vs Reliance B.V.) must not
+      // surface as "the" company.
+      const nameRank = companyMatchRank(query, name);
       const activeRank =
         record.attributes.entity.status === "ACTIVE" &&
         record.attributes.registration.status === "ISSUED"
@@ -110,7 +107,16 @@ export async function searchLegalEntities(
           : 1;
       return { record, name, nameRank, activeRank };
     })
-    .filter(({ nameRank }) => nameRank < 3)
+    .filter(
+      (
+        entry,
+      ): entry is {
+        record: LeiRecord;
+        name: string;
+        nameRank: 0 | 1;
+        activeRank: number;
+      } => entry.nameRank === 0 || entry.nameRank === 1,
+    )
     .sort(
       (left, right) =>
         left.nameRank - right.nameRank || left.activeRank - right.activeRank,
@@ -156,16 +162,38 @@ export async function getLegalEntityIdentity(
   const creationYear = entity.creationDate
     ? Number(entity.creationDate.slice(0, 4)) || null
     : null;
+  const primarySource = {
+    id: "gleif" as const,
+    label: "GLEIF legal entity record",
+    url: record.links.self,
+  };
 
   return {
     name: entity.legalName.name,
     description,
     overview: `${entity.legalName.name} is a ${description.toLowerCase()} with Legal Entity Identifier ${record.attributes.lei}.${address ? ` Its registered headquarters is ${address}.` : ""}`,
     wikipediaUrl: record.links.self,
+    lei: record.attributes.lei,
     imageUrl: null,
     website: null,
     countryName,
     industry: null,
     foundedYear: creationYear,
+    primarySource,
+    sourceReferences: [primarySource],
+    confidence: {
+      level: "high",
+      label: "Legal entity verified",
+      reason: "Resolved directly from a unique Legal Entity Identifier.",
+      ambiguous: false,
+    },
+    provenance: createCompanyProvenance(["gleif"], "high", {
+      website: {
+        note: "The GLEIF record did not list an official website.",
+      },
+      industry: {
+        note: "GLEIF does not provide an operating industry for this record.",
+      },
+    }),
   };
 }

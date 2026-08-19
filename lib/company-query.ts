@@ -9,16 +9,35 @@ const LEGAL_SUFFIXES = new Set([
   "holdings",
   "inc",
   "incorporated",
+  "intl",
   "limited",
   "llc",
   "ltd",
   "nv",
   "plc",
+  "pty",
   "sa",
 ]);
 
-export function normalizeCompanyName(value: string): string {
-  const words = value
+/**
+ * Tokens that only describe the geographic scope of an entity rather than its
+ * business. These are the ONLY "extra" tokens allowed when matching names on a
+ * token-superset basis. Business-type words (finance, power, chemicals,
+ * motors, ...) must never be treated this way: they distinguish sibling
+ * companies (Tata Motors vs Tata Motors Finance), and conflating them is
+ * exactly the wrong-company mistake the listing resolver must avoid.
+ */
+const SCOPE_QUALIFIERS = new Set([
+  "asia",
+  "global",
+  "india",
+  "indian",
+  "international",
+  "worldwide",
+]);
+
+function normalizedWords(value: string): string[] {
+  return value
     .normalize("NFKD")
     .toLowerCase()
     .replace(/[’']/g, "")
@@ -28,7 +47,60 @@ export function normalizeCompanyName(value: string): string {
     .filter(Boolean)
     .filter((word, index) => !(index === 0 && word === "the"))
     .filter((word) => !LEGAL_SUFFIXES.has(word));
-  return words.join("");
+}
+
+export function normalizeCompanyTokens(value: string): string[] {
+  return normalizedWords(value);
+}
+
+export function normalizeCompanyName(value: string): string {
+  return normalizedWords(value).join("");
+}
+
+/**
+ * Ranks how confidently a candidate company name matches a query, from most to
+ * least definite:
+ *
+ * 0 - exact after normalization (legal suffixes, case, punctuation stripped)
+ * 1 - token superset: every token of both names agrees, and any "extra"
+ *     tokens on either side are scope qualifiers only ("Maruti Suzuki" matches
+ *     "Maruti Suzuki India Ltd"; "Tata Motors" does NOT match "Tata Motors
+ *     Finance")
+ * 2 - prefix match of the concatenated normalized names
+ * 3 - containment match of the concatenated normalized names
+ * null - no relation
+ */
+export type CompanyMatchRank = 0 | 1 | 2 | 3;
+
+export function companyMatchRank(
+  query: string,
+  candidate: string,
+): CompanyMatchRank | null {
+  const queryTokens = normalizedWords(query);
+  const candidateTokens = normalizedWords(candidate);
+  if (!queryTokens.length || !candidateTokens.length) return null;
+  const joinedQuery = queryTokens.join("");
+  const joinedCandidate = candidateTokens.join("");
+  if (joinedQuery === joinedCandidate) return 0;
+  const supersetWithinScope =
+    queryTokens.every(
+      (token) => candidateTokens.includes(token) || SCOPE_QUALIFIERS.has(token),
+    ) &&
+    candidateTokens.every(
+      (token) => queryTokens.includes(token) || SCOPE_QUALIFIERS.has(token),
+    );
+  if (supersetWithinScope) return 1;
+  if (
+    joinedQuery.startsWith(joinedCandidate) ||
+    joinedCandidate.startsWith(joinedQuery)
+  )
+    return 2;
+  if (
+    joinedQuery.includes(joinedCandidate) ||
+    joinedCandidate.includes(joinedQuery)
+  )
+    return 3;
+  return null;
 }
 
 export function extractDomain(value: string): string | null {
@@ -53,8 +125,24 @@ export function domainSearchTerm(domain: string): string {
   return domain.split(".")[0]?.replace(/[-_]+/g, " ") ?? domain;
 }
 
+/**
+ * Person descriptors found in Wikidata descriptions of humans ("Indian
+ * businessman", "American entrepreneur", ...). These run BEFORE the positive
+ * organization regex because words like "business" are also organization
+ * descriptors ("Indian business", "business services").
+ */
+const PERSON_DESCRIPTORS =
+  /\b(businessman|businesswoman|businessperson|magnate|tycoon|mogul|entrepreneur|industrialist|financier|investor|banker|economist|philanthropist|billionaire|millionaire|politician|statesman|stateswoman|senator|congressman|congresswoman|governor|minister|diplomat|activist|journalist|author|writer|poet|novelist|playwright|screenwriter|artist|painter|sculptor|musician|singer|songwriter|composer|rapper|actor|actress|comedian|presenter|athlete|sportsperson|sportsman|sportswoman|cricketer|footballer|golfer|boxer|wrestler|cyclist|scientist|physicist|chemist|biologist|astronomer|mathematician|doctor|surgeon|physician|lawyer|attorney|judge|philosopher|historian|professor|personality|celebrity|monk|priest|nun|rabbi|imam|king|queen|prince|princess|emperor|empress|duke|duchess|monarch|heir|noble)\b/i;
+
+/** Wikidata person descriptions almost always end in "(born YYYY)". */
+const BORN_SUFFIX = /\(born\s+\d{4}\)/i;
+
 export function isOrganizationDescription(description: string): boolean {
-  return /(airline|automaker|bank|brewery|business|chain|company|conglomerate|cooperative|corporation|enterprise|firm|group|hotel|manufacturer|marketplace|media|multinational|nonprofit|organisation|organization|pharmaceutical|publisher|restaurant|retailer|services|startup|studio|supermarket|technology|telecommunications)/i.test(
+  if (!description) return false;
+  if (PERSON_DESCRIPTORS.test(description) || BORN_SUFFIX.test(description))
+    return false;
+  if (/\bbrands?\s+of\b/i.test(description)) return false;
+  return /\b(airline|automaker|bank|brand|brewery|business|chain|company|conglomerate|cooperative|corporation|enterprise|firm|group|hotel|manufacturer|marketplace|media|multinational|nonprofit|organisation|organization|pharmaceutical|publisher|restaurant|retailer|services|startup|studio|supermarket|technology|telecommunications)\b/i.test(
     description,
   );
 }

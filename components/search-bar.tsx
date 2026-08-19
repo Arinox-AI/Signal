@@ -358,6 +358,9 @@ export function SearchBar({
                     </span>
                     <span className="mt-0.5 block truncate text-[11px] text-white/45">
                       {suggestion.description}
+                      {suggestion.parentName
+                        ? ` · Part of ${suggestion.parentName}`
+                        : ""}
                     </span>
                   </span>
                   <span className="font-mono text-[8px] tracking-wider text-white/35 uppercase">

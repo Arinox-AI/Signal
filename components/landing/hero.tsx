@@ -1,6 +1,12 @@
 "use client";
 
-import { ArrowDown, ArrowRight, Braces, Globe2, Newspaper } from "lucide-react";
+import {
+  ArrowDown,
+  ArrowRight,
+  Building2,
+  Globe2,
+  Newspaper,
+} from "lucide-react";
 import {
   motion,
   useMotionValue,
@@ -19,9 +25,9 @@ const sources = [
     position: "source-a",
   },
   {
-    label: "Build",
-    detail: "GitHub activity",
-    icon: Braces,
+    label: "Structure",
+    detail: "Leadership + parent",
+    icon: Building2,
     position: "source-b",
   },
   {

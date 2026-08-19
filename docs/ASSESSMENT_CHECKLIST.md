@@ -58,7 +58,6 @@ This is the release gate for Signal. An item may be checked only after implement
 - [x] First-load skeleton state verified.
 - [x] Empty search and unknown company states verified.
 - [ ] Wikipedia failure verified.
-- [ ] GitHub unavailable and rate-limited states verified.
 - [ ] News failure and no-news states verified.
 - [x] REST Countries failure and missing-key states verified.
 - [ ] Gemini failure, missing-key, and quota states verified.

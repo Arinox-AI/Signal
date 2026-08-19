@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 
+import { UpstreamError } from "@/lib/http/request";
 import { getCompanyIntelligence } from "@/services/company-intelligence";
 
 export async function GET(
@@ -19,7 +20,13 @@ export async function GET(
         "Cache-Control": "public, s-maxage=600, stale-while-revalidate=86400",
       },
     });
-  } catch {
+  } catch (error) {
+    if (error instanceof UpstreamError) {
+      return NextResponse.json(
+        { error: "Signal's data sources are temporarily unavailable." },
+        { status: error.rateLimited ? 429 : 502 },
+      );
+    }
     return NextResponse.json(
       {
         error:

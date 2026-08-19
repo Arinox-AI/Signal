@@ -1,6 +1,17 @@
-import { ArrowUpRight, CalendarDays, Globe2, MapPin } from "lucide-react";
+import {
+  ArrowUpRight,
+  Building2,
+  CalendarDays,
+  Fingerprint,
+  Globe2,
+  MapPin,
+  ShieldCheck,
+  TriangleAlert,
+} from "lucide-react";
 import Image from "next/image";
+import Link from "next/link";
 
+import { IdentityProvenance } from "@/components/report/identity-provenance";
 import { SearchBar } from "@/components/search-bar";
 import { CopyLinkButton } from "@/components/copy-link-button";
 import type { IntelligenceReport } from "@/lib/types/company";
@@ -13,6 +24,12 @@ export function ReportHeader({ report }: { report: IntelligenceReport }) {
     report.website.state === "success"
       ? report.website.data.url
       : identity.website;
+  const ConfidenceIcon = identity.confidence.ambiguous
+    ? TriangleAlert
+    : ShieldCheck;
+  const confidenceClass = identity.confidence.ambiguous
+    ? "border-amber-200/15 bg-amber-200/[0.05] text-amber-100/75"
+    : "border-emerald-200/15 bg-emerald-200/[0.05] text-emerald-100/75";
   return (
     <header className="report-header relative pb-10">
       <div
@@ -49,6 +66,25 @@ export function ReportHeader({ report }: { report: IntelligenceReport }) {
             </div>
           </div>
           <div className="report-tags flex flex-wrap items-center gap-2 text-xs">
+            <span
+              title={identity.confidence.reason}
+              className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-2 ${confidenceClass}`}
+            >
+              <ConfidenceIcon className="size-3.5" aria-hidden="true" />
+              {identity.confidence.label}
+              {identity.confidence.ambiguous ? " · Review match" : ""}
+            </span>
+            {report.parent && (
+              <Link
+                href={`/company/${encodeURIComponent(report.parent.query.toLowerCase())}`}
+                className="inline-flex items-center gap-1.5 rounded-full border border-blue-200/15 bg-blue-200/[0.05] px-3 py-2 text-blue-100/75 transition hover:bg-blue-200/[0.1]"
+                title={`Group exposure runs through ${report.parent.name}`}
+              >
+                <Building2 className="size-3.5" aria-hidden="true" />
+                Part of {report.parent.name}
+                <ArrowUpRight className="size-3" aria-hidden="true" />
+              </Link>
+            )}
             {identity.countryName && (
               <span className="inline-flex items-center gap-1.5 px-3 py-2">
                 <MapPin className="size-3.5" aria-hidden="true" />
@@ -59,6 +95,15 @@ export function ReportHeader({ report }: { report: IntelligenceReport }) {
               <span className="inline-flex items-center gap-1.5 px-3 py-2">
                 <CalendarDays className="size-3.5" aria-hidden="true" />
                 Founded {identity.foundedYear}
+              </span>
+            )}
+            {identity.lei && (
+              <span
+                title="Legal Entity Identifier"
+                className="inline-flex items-center gap-1.5 px-3 py-2 font-mono text-[10px]"
+              >
+                <Fingerprint className="size-3.5" aria-hidden="true" />
+                LEI {identity.lei}
               </span>
             )}
             {websiteUrl && (
@@ -76,6 +121,7 @@ export function ReportHeader({ report }: { report: IntelligenceReport }) {
             <CopyLinkButton />
           </div>
         </div>
+        <IdentityProvenance identity={identity} sources={report.sources} />
         <div className="report-header-scan" aria-hidden="true">
           <span className="scan-orbit scan-orbit-one" />
           <span className="scan-orbit scan-orbit-two" />

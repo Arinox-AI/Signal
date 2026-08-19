@@ -1496,6 +1496,364 @@ html[data-theme="light"] .report-header [class*="text-blue-"] {
 .dossier-provenance a {
   color: var(--signal-accent);
 }
+.report-tabs-shell {
+  border-bottom: 1px solid var(--signal-line);
+  background: color-mix(in srgb, var(--signal-ink) 94%, transparent);
+}
+.report-tabs {
+  border-bottom: 1px solid var(--signal-line);
+}
+.report-tab {
+  position: relative;
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 3.25rem;
+  border-bottom: 2px solid transparent;
+  padding: 0 0.85rem;
+  color: var(--signal-muted);
+  font-size: 0.72rem;
+  font-weight: 650;
+  transition:
+    color 0.2s ease,
+    border-color 0.2s ease,
+    background 0.2s ease;
+}
+.report-tab:hover {
+  color: var(--signal-text);
+  background: color-mix(in srgb, var(--signal-accent) 5%, transparent);
+}
+.report-tab-active {
+  border-color: var(--signal-accent);
+  color: var(--signal-text);
+}
+.report-tab-status {
+  border: 1px solid var(--signal-line);
+  border-radius: 999px;
+  padding: 0.22rem 0.42rem;
+  color: var(--signal-muted);
+  font-family: var(--font-geist-mono);
+  font-size: 0.5rem;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.public-listing-content {
+  position: relative;
+}
+.public-listing-identity-panel,
+.public-listing-snapshot-panel,
+.public-listing-chart-panel,
+.public-listing-peers-panel,
+.public-listing-shareholding-panel,
+.public-listing-investors-panel {
+  background: linear-gradient(
+    145deg,
+    color-mix(in srgb, var(--signal-accent) 7%, var(--signal-surface)),
+    var(--signal-surface) 58%
+  );
+}
+.public-listing-snapshot-panel dl {
+  border: 1px solid var(--signal-line);
+}
+.public-listing-snapshot-panel dl > div {
+  min-height: 6.5rem;
+}
+.public-listing-chart-hero {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+.public-listing-metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+.public-listing-metric {
+  border-right: 1px solid var(--signal-line);
+  border-bottom: 1px solid var(--signal-line);
+  padding: 0.9rem 1rem;
+}
+.public-listing-metric:nth-child(4n) {
+  border-right: 0;
+}
+.public-listing-metric:nth-last-child(-n + 4) {
+  border-bottom: 0;
+}
+.public-listing-metric dt {
+  color: var(--signal-muted);
+  font-family: var(--font-geist-mono);
+  font-size: 0.56rem;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.public-listing-metric dd {
+  margin-top: 0.5rem;
+  color: var(--signal-text);
+  font-size: 0.82rem;
+  font-weight: 550;
+  font-variant-numeric: tabular-nums;
+}
+.chart-fact {
+  border: 1px solid var(--signal-line);
+  padding: 0.7rem 0.8rem;
+  background: color-mix(in srgb, var(--signal-surface) 70%, transparent);
+}
+.chart-fact span {
+  display: block;
+  color: var(--signal-muted);
+  font-family: var(--font-geist-mono);
+  font-size: 0.52rem;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.chart-fact strong {
+  display: block;
+  margin-top: 0.35rem;
+  color: var(--signal-text);
+  font-weight: 550;
+  font-variant-numeric: tabular-nums;
+}
+.financial-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  border: 1px solid var(--signal-line);
+}
+.financial-summary-item {
+  padding: 0.85rem 1rem;
+  border-right: 1px solid var(--signal-line);
+}
+.financial-summary-item:last-child {
+  border-right: 0;
+}
+.financial-summary-item > p {
+  color: var(--signal-muted);
+  font-family: var(--font-geist-mono);
+  font-size: 0.54rem;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.financial-summary-values {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-top: 0.45rem;
+}
+.financial-summary-values > span {
+  color: var(--signal-text);
+  font-size: 0.85rem;
+  font-weight: 550;
+  font-variant-numeric: tabular-nums;
+}
+.financial-summary-values small {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  font-family: var(--font-geist-mono);
+  font-size: 0.58rem;
+  white-space: nowrap;
+}
+.financial-page-button {
+  display: inline-grid;
+  place-items: center;
+  border: 1px solid var(--signal-line);
+  padding: 0.3rem;
+  color: var(--signal-muted);
+  transition:
+    color 0.2s ease,
+    border-color 0.2s ease,
+    background 0.2s ease;
+}
+.financial-page-button:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--signal-accent) 65%, transparent);
+  background: color-mix(in srgb, var(--signal-accent) 10%, transparent);
+  color: var(--signal-accent-strong);
+}
+.financial-page-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.35;
+}
+.financial-table-wrap {
+  position: relative;
+}
+.financial-table {
+  width: 100%;
+  min-width: 680px;
+  border-collapse: collapse;
+  color: var(--signal-muted);
+  font-size: 0.72rem;
+  white-space: nowrap;
+}
+.financial-table th,
+.financial-table td {
+  border-bottom: 1px solid var(--signal-line);
+  padding: 0.78rem 1rem;
+  text-align: right;
+}
+.financial-table th:first-child,
+.financial-table td:first-child {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background: color-mix(in srgb, var(--signal-surface) 97%, transparent);
+  text-align: left;
+}
+.financial-table thead th {
+  color: var(--signal-muted);
+  font-family: var(--font-geist-mono);
+  font-size: 0.58rem;
+  font-weight: 500;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+.financial-table tbody th {
+  color: var(--signal-text);
+  font-weight: 550;
+}
+.financial-table tbody tr:hover th,
+.financial-table tbody tr:hover td {
+  background: color-mix(in srgb, var(--signal-accent) 5%, transparent);
+}
+.financial-table tbody tr:last-child th,
+.financial-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+.peer-table {
+  width: 100%;
+  min-width: 820px;
+  border-collapse: collapse;
+  color: var(--signal-muted);
+  font-size: 0.72rem;
+  white-space: nowrap;
+}
+.peer-table th,
+.peer-table td {
+  border-bottom: 1px solid var(--signal-line);
+  padding: 0.78rem 1rem;
+  text-align: right;
+}
+.peer-table th:first-child,
+.peer-table td:first-child {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background: color-mix(in srgb, var(--signal-surface) 97%, transparent);
+  text-align: left;
+}
+.peer-table thead th {
+  color: var(--signal-muted);
+  font-family: var(--font-geist-mono);
+  font-size: 0.58rem;
+  font-weight: 500;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+.peer-table tbody th {
+  color: var(--signal-text);
+  font-weight: 550;
+}
+.peer-table tbody tr:hover th,
+.peer-table tbody tr:hover td {
+  background: color-mix(in srgb, var(--signal-accent) 5%, transparent);
+}
+.peer-table tbody tr:last-child th,
+.peer-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+.peer-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  color: var(--signal-accent);
+  font-weight: 550;
+}
+.peer-link:hover {
+  color: var(--signal-accent-strong);
+}
+.shareholding-card {
+  border: 1px solid var(--signal-line);
+  padding: 0.8rem 0.9rem;
+  background: color-mix(in srgb, var(--signal-surface) 70%, transparent);
+}
+.shareholding-history {
+  border: 0;
+  border-top: 1px solid var(--signal-line);
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+.public-listing-chart-button {
+  border: 1px solid var(--signal-line);
+  border-radius: 999px;
+  padding: 0.36rem 0.58rem;
+  color: var(--signal-muted);
+  font-family: var(--font-geist-mono);
+  font-size: 0.58rem;
+  letter-spacing: 0.05em;
+  transition:
+    color 0.2s ease,
+    border-color 0.2s ease,
+    background 0.2s ease;
+}
+.public-listing-chart-button:hover,
+.public-listing-chart-button-active {
+  border-color: color-mix(in srgb, var(--signal-accent) 65%, transparent);
+  background: color-mix(in srgb, var(--signal-accent) 10%, transparent);
+  color: var(--signal-accent-strong);
+}
+.public-listing-mini-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.68rem;
+}
+.public-listing-mini-table th,
+.public-listing-mini-table td {
+  border-bottom: 1px solid var(--signal-line);
+  padding: 0.5rem 0.35rem;
+  text-align: right;
+}
+.public-listing-mini-table th:first-child,
+.public-listing-mini-table td:first-child {
+  text-align: left;
+}
+.public-listing-mini-table th {
+  color: var(--signal-muted);
+  font-family: var(--font-geist-mono);
+  font-size: 0.56rem;
+  font-weight: 500;
+  text-transform: uppercase;
+}
+.public-listing-document {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  border: 1px solid var(--signal-line);
+  padding: 0.65rem;
+  transition:
+    border-color 0.2s ease,
+    background 0.2s ease,
+    transform 0.2s ease;
+}
+.public-listing-document:hover {
+  border-color: color-mix(in srgb, var(--signal-accent) 45%, transparent);
+  background: color-mix(in srgb, var(--signal-accent) 5%, transparent);
+  transform: translateY(-1px);
+}
+html[data-theme="light"] .report-tabs-shell {
+  background: #111722;
+}
+html[data-theme="light"] .financial-table th:first-child,
+html[data-theme="light"] .financial-table td:first-child,
+html[data-theme="light"] .peer-table th:first-child,
+html[data-theme="light"] .peer-table td:first-child {
+  background: #111722;
+}
 html[data-theme="light"] .dossier-main {
   background: #eeeae0;
 }
@@ -1541,6 +1899,20 @@ html[data-theme="light"] .dossier-timeline {
   .dossier-summary-content::after {
     right: -14rem;
   }
+  .public-listing-snapshot-panel dl,
+  .public-listing-metrics-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .financial-summary {
+    grid-template-columns: 1fr;
+  }
+  .financial-summary-item {
+    border-right: 0;
+    border-bottom: 1px solid var(--signal-line);
+  }
+  .financial-summary-item:last-child {
+    border-bottom: 0;
+  }
   .report-metric {
     min-height: 7.5rem;
   }
@@ -1576,6 +1948,19 @@ html[data-theme="light"] .dossier-timeline {
   }
   .dossier-summary-content::after {
     display: none;
+  }
+  .report-tab {
+    min-height: 3rem;
+    padding-inline: 0.65rem;
+  }
+  .report-tab-status {
+    display: none;
+  }
+  .financial-table th,
+  .financial-table td,
+  .peer-table th,
+  .peer-table td {
+    padding-inline: 0.75rem;
   }
 }
 
