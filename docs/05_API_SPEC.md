@@ -1,10 +1,11 @@
 # API Specification
 
 Wikipedia REST
-GitHub REST
+GLEIF LEI search
+Wikidata
 REST Countries
 GNews/RSS
 Gemini Free Tier
-Clearbit Logo
+Screener.in / NSE / BSE / IndianAPI
 Google Favicon
 All server-side with caching and retries.

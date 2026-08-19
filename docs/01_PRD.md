@@ -8,9 +8,9 @@ Core Features:
 - Company search
 - AI summary
 - News
-- GitHub activity
 - Country information
 - Website metadata
+- Public listing data (India)
 - Shareable URLs
 
 Non-functional:

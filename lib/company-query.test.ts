@@ -21,14 +21,26 @@ describe("company query normalization", () => {
     expect(extractDomain("Example Company")).toBeNull();
   });
 
-  it("accepts companies across industries but rejects product-only brands", () => {
+  it("accepts companies and company-owned brands but rejects product brands", () => {
     expect(isOrganizationDescription("Japanese automotive manufacturer")).toBe(
       true,
     );
     expect(isOrganizationDescription("international supermarket chain")).toBe(
       true,
     );
+    expect(isOrganizationDescription("Indian clothing brand")).toBe(true);
     expect(isOrganizationDescription("brand of toothpaste")).toBe(false);
+  });
+
+  it("rejects people and person-styled descriptions", () => {
+    expect(isOrganizationDescription("Indian businessman (born 1957)")).toBe(
+      false,
+    );
+    expect(isOrganizationDescription("American entrepreneur")).toBe(false);
+    expect(isOrganizationDescription("Indian business magnate")).toBe(false);
+    expect(isOrganizationDescription("Australian actress")).toBe(false);
+    expect(isOrganizationDescription("Indian cricketer")).toBe(false);
+    expect(isOrganizationDescription("(born 1957)")).toBe(false);
   });
 });
 

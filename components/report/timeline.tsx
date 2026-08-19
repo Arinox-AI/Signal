@@ -5,29 +5,27 @@ import { dateLabel } from "@/lib/format";
 import type { IntelligenceReport } from "@/lib/types/company";
 
 export function Timeline({ report }: { report: IntelligenceReport }) {
-  const news =
-    report.news.state === "success"
-      ? report.news.data.slice(0, 4).map((item) => ({
-          title: item.title,
-          detail: item.source,
-          date: item.publishedAt,
-          url: item.url,
-          type: "Coverage",
-        }))
-      : [];
-  const repos =
-    report.github.state === "success"
-      ? report.github.data.topRepositories.slice(0, 3).map((repo) => ({
-          title: `${repo.name} repository updated`,
-          detail: repo.language ?? "GitHub",
-          date: repo.updatedAt,
-          url: repo.url,
-          type: "Build",
-        }))
-      : [];
-  const events = [...news, ...repos]
+  const news = report.news.state === "success" ? report.news.data : [];
+  const techNews =
+    report.techNews.state === "success" ? report.techNews.data : [];
+  const events = [
+    ...news.slice(0, 6).map((item) => ({
+      title: item.title,
+      detail: item.source,
+      date: item.publishedAt,
+      url: item.url,
+      type: "Coverage",
+    })),
+    ...techNews.slice(0, 6).map((item) => ({
+      title: item.title,
+      detail: item.source,
+      date: item.publishedAt,
+      url: item.url,
+      type: "AI · Tech",
+    })),
+  ]
     .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
-    .slice(0, 6);
+    .slice(0, 8);
   return (
     <Panel label="Live signal timeline" className="dossier-timeline">
       <div className="p-5 sm:p-6">

@@ -9,20 +9,33 @@ import {
   sourceUnavailable,
 } from "@/lib/data/source-result";
 import type {
+  BusinessDeepDive,
   CountryContext,
-  GithubActivity,
   IntelligenceReport,
   NewsItem,
   OrgPeopleData,
+  ParentCompany,
   SourceResult,
   SourceReference,
   WebsiteMetadata,
 } from "@/lib/types/company";
 import { getCountryContext } from "@/services/country";
-import { fallbackBrief, generateBrief } from "@/services/gemini";
-import { getGithubActivity, GithubNotFoundError } from "@/services/github";
-import { getCompanyNews } from "@/services/news";
-import { getOrgPeopleIntelligence } from "@/services/org-people";
+import {
+  fallbackBrief,
+  fallbackBusinessDeepDive,
+  generateBrief,
+  generateBusinessDeepDive,
+} from "@/services/gemini";
+import { getCompanyNews, getCompanyTechNews } from "@/services/news";
+import {
+  getOrgPeopleIntelligence,
+  resolveParentFromOverview,
+} from "@/services/org-people";
+import {
+  buildPrioritiesSignal,
+  collectPrioritiesEvidence,
+  type PrioritiesEvidence,
+} from "@/services/priorities";
 import { getPublicListingIntelligence } from "@/services/public-listing/service";
 import { getWebsiteMetadata } from "@/services/website";
 import { getCompanyIdentity } from "@/services/wikipedia";
@@ -72,14 +85,6 @@ export const getCompanyIntelligence = cache(
               "No official website was listed in the public company record.",
             ),
           );
-    const githubPromise: Promise<SourceResult<GithubActivity>> =
-      getGithubActivity(identity.name)
-        .then(sourceSuccess)
-        .catch((error: unknown) =>
-          error instanceof GithubNotFoundError
-            ? sourceEmpty<GithubActivity>(error.message)
-            : failure<GithubActivity>(error, "GitHub activity is unavailable."),
-        );
     const newsPromise: Promise<SourceResult<NewsItem[]>> = getCompanyNews(
       identity.name,
       identity.countryName,
@@ -92,6 +97,21 @@ export const getCompanyIntelligence = cache(
       .catch((error: unknown) =>
         failure<NewsItem[]>(error, "News is unavailable."),
       );
+    const techNewsPromise: Promise<SourceResult<NewsItem[]>> =
+      getCompanyTechNews(identity.name)
+        .then((items) =>
+          items.length
+            ? sourceSuccess(items)
+            : sourceEmpty<NewsItem[]>(
+                "No recent AI or technology coverage matched this company.",
+              ),
+        )
+        .catch((error: unknown) =>
+          failure<NewsItem[]>(
+            error,
+            "AI and technology coverage is unavailable.",
+          ),
+        );
     const countryPromise: Promise<SourceResult<CountryContext>> =
       identity.countryName
         ? getCountryContext(identity.countryName)
@@ -102,8 +122,8 @@ export const getCompanyIntelligence = cache(
         : Promise.resolve(
             sourceEmpty("No headquarters country was available."),
           );
-    const publicListingPromise = getPublicListingIntelligence(query, identity);
-    const orgPeoplePromise = publicListingPromise.then((publicListing) =>
+    const pubListingResolved = getPublicListingIntelligence(query, identity);
+    const orgPeoplePromise = pubListingResolved.then((publicListing) =>
       getOrgPeopleIntelligence(
         identity,
         publicListing.state === "success" &&
@@ -119,16 +139,44 @@ export const getCompanyIntelligence = cache(
           ),
         ),
     );
+    // Priorities signal evidence (earnings-call transcript, blog/newsroom,
+    // hiring skill emphasis, public internal announcements) is collected in
+    // parallel with the other sources and is synthesis-independent.
+    const prioritiesPromise: Promise<PrioritiesEvidence> =
+      orgPeoplePromise.then(async (orgPeople) =>
+        collectPrioritiesEvidence({
+          identity,
+          hiringRoles:
+            orgPeople.state === "success" ? orgPeople.data.hiring.roles : [],
+          publicListing: await pubListingResolved,
+        }),
+      );
 
-    const [website, github, news, country, publicListing, orgPeople] =
-      await Promise.all([
-        websitePromise,
-        githubPromise,
-        newsPromise,
-        countryPromise,
-        publicListingPromise,
-        orgPeoplePromise,
-      ]);
+    const [
+      website,
+      news,
+      techNews,
+      country,
+      publicListing,
+      orgPeople,
+      prioritiesEvidence,
+    ] = await Promise.all([
+      websitePromise,
+      newsPromise,
+      techNewsPromise,
+      countryPromise,
+      pubListingResolved,
+      orgPeoplePromise,
+      prioritiesPromise,
+    ]);
+
+    // Parent detection rides on org-people (Wikidata entity in hand); when
+    // that path failed entirely, fall back to "owned by X" prose detection
+    // against the identity that did resolve.
+    const parent: ParentCompany | null =
+      orgPeople.state === "success" && orgPeople.data.parent !== null
+        ? orgPeople.data.parent
+        : await resolveParentFromOverview(identity).catch(() => null);
 
     const sources = mergeSourceReferences([
       ...identity.sourceReferences,
@@ -141,17 +189,6 @@ export const getCompanyIntelligence = cache(
           }
         : null,
       {
-        id: "github",
-        label:
-          github.state === "success"
-            ? "GitHub organization"
-            : "GitHub organization search",
-        url:
-          github.state === "success"
-            ? github.data.url
-            : `https://github.com/search?q=${encodeURIComponent(identity.name)}&type=users`,
-      },
-      {
         id: "news",
         label: "Google News coverage",
         url:
@@ -159,6 +196,20 @@ export const getCompanyIntelligence = cache(
             ? news.data[0].url
             : newsSearchUrl(identity.name, identity.countryName),
       },
+      prioritiesEvidence.concall
+        ? {
+            id: "concall",
+            label: "Latest earnings-call transcript",
+            url: prioritiesEvidence.concall.url,
+          }
+        : null,
+      prioritiesEvidence.blogSignals[0]
+        ? {
+            id: "blog",
+            label: "Company blog & newsroom",
+            url: prioritiesEvidence.blogSignals[0].url,
+          }
+        : null,
       country.state === "success"
         ? {
             id: "country",
@@ -175,22 +226,45 @@ export const getCompanyIntelligence = cache(
         : null,
     ]);
 
-    const briefData = await generateBrief(
-      identity,
-      sources,
-      website.state === "success" ? website.data : null,
-      publicListing.state === "success" ? publicListing.data : null,
-      news.state === "success" ? news.data : [],
-      github.state === "success" ? github.data : null,
-      country.state === "success" ? country.data : null,
-    ).catch(() =>
-      fallbackBrief(
+    const [briefData, deepDiveData, prioritiesData] = await Promise.all([
+      generateBrief(
         identity,
+        sources,
+        website.state === "success" ? website.data : null,
+        publicListing.state === "success" ? publicListing.data : null,
         news.state === "success" ? news.data : [],
-        github.state === "success" ? github.data : null,
-      ),
-    );
+        country.state === "success" ? country.data : null,
+        parent,
+      ).catch((error: unknown) => {
+        console.warn(
+          "[signal] Gemini brief generation failed; using the deterministic fallback.",
+          error instanceof Error ? error.message : error,
+        );
+        return fallbackBrief(
+          identity,
+          news.state === "success" ? news.data : [],
+        );
+      }),
+      generateBusinessDeepDive(
+        identity,
+        website.state === "success" ? website.data : null,
+        news.state === "success" ? news.data : [],
+        techNews.state === "success" ? techNews.data : [],
+      ).catch((error: unknown) => {
+        console.warn(
+          "[signal] Gemini business deep-dive failed; using the deterministic fallback.",
+          error instanceof Error ? error.message : error,
+        );
+        return fallbackBusinessDeepDive(
+          identity,
+          website.state === "success" ? website.data : null,
+        );
+      }),
+      buildPrioritiesSignal(prioritiesEvidence),
+    ]);
     const brief = sourceSuccess(briefData);
+    const business = sourceSuccess<BusinessDeepDive>(deepDiveData);
+    const priorities = sourceSuccess(prioritiesData);
 
     return {
       query,
@@ -199,12 +273,15 @@ export const getCompanyIntelligence = cache(
         .replace(/[^a-z0-9]+/g, "-")
         .replace(/^-|-$/g, ""),
       identity,
+      parent,
       sources,
       website,
-      github,
       news,
+      techNews,
       country,
       brief,
+      business,
+      priorities,
       publicListing,
       orgPeople,
       generatedAt: new Date().toISOString(),

@@ -139,7 +139,6 @@ async function wikidataDetails(title: string): Promise<WikidataDetails> {
       action: "wbgetentities",
       ids: ids.join("|"),
       props: "labels",
-      languages: "en",
       format: "json",
       origin: "*",
     }).toString();

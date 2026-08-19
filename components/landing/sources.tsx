@@ -1,11 +1,22 @@
-import { Bot, Braces, Flag, Globe2, Landmark, Newspaper } from "lucide-react";
+import {
+  Bot,
+  Building2,
+  Flag,
+  Globe2,
+  Landmark,
+  Newspaper,
+} from "lucide-react";
 
 import { Reveal } from "@/components/motion/reveal";
 
 const sources = [
   { icon: Landmark, name: "Entity records", detail: "GLEIF + Wikidata" },
   { icon: Globe2, name: "Official presence", detail: "Website + public web" },
-  { icon: Braces, name: "Builder signal", detail: "GitHub" },
+  {
+    icon: Building2,
+    name: "Corporate structure",
+    detail: "Ownership + leadership",
+  },
   { icon: Newspaper, name: "Current context", detail: "Google News RSS" },
   { icon: Flag, name: "Operating context", detail: "REST Countries" },
   { icon: Bot, name: "Grounded synthesis", detail: "Gemini" },

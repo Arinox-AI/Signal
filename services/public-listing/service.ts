@@ -302,7 +302,6 @@ async function globalListingBasics(
         action: "wbgetentities",
         ids: exchangeIds.join("|"),
         props: "labels",
-        languages: "en",
         format: "json",
         origin: "*",
       }).toString();

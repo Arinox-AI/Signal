@@ -36,12 +36,48 @@ const listingClaimsSchema = z.object({
     .optional(),
 });
 
+type RecordValue = Record<string, unknown>;
+const isRecord = (value: unknown): value is RecordValue =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+interface WikidataItemContext {
+  listed: boolean;
+  parentId: string | null;
+}
+
+function firstItemClaimId(
+  entity: unknown,
+  properties: string[],
+): string | null {
+  if (!isRecord(entity) || !isRecord(entity.claims)) return null;
+  for (const property of properties) {
+    const claims = entity.claims[property];
+    if (!Array.isArray(claims)) continue;
+    for (const claim of claims) {
+      if (
+        isRecord(claim) &&
+        isRecord(claim.mainsnak) &&
+        isRecord(claim.mainsnak.datavalue) &&
+        isRecord(claim.mainsnak.datavalue.value) &&
+        typeof claim.mainsnak.datavalue.value.id === "string"
+      ) {
+        return claim.mainsnak.datavalue.value.id;
+      }
+    }
+  }
+  return null;
+}
+
 /**
- * Lists which wikidata items are listed companies. An entity counts as listed
- * when it carries a stock-exchange (P414) or ISIN (P249) claim; both are
- * batch-fetched in a single request.
+ * Lists which wikidata items are listed companies, and which carry a parent
+ * organization. An entity counts as listed when it carries a stock-exchange
+ * (P414) or ISIN (P249) claim; the parent is the first of P749 (parent
+ * organization), P127 (owned by), P361 (part of). Both dimensions are
+ * batch-fetched in a single request, with one label lookup for the parents.
  */
-async function wikidataListedIds(ids: string[]): Promise<Set<string>> {
+async function wikidataItemContexts(
+  ids: string[],
+): Promise<Map<string, WikidataItemContext>> {
   const url = new URL("https://www.wikidata.org/w/api.php");
   url.search = new URLSearchParams({
     action: "wbgetentities",
@@ -50,6 +86,7 @@ async function wikidataListedIds(ids: string[]): Promise<Set<string>> {
     format: "json",
     origin: "*",
   }).toString();
+  let entities: z.infer<typeof listingClaimsSchema>["entities"] = undefined;
   try {
     const response = await resilientFetch(
       url.toString(),
@@ -57,18 +94,84 @@ async function wikidataListedIds(ids: string[]): Promise<Set<string>> {
       { revalidate: 86_400, timeoutMs: 4_500 },
     );
     const payload = listingClaimsSchema.parse(await response.json());
-    return new Set(
-      Object.entries(payload.entities ?? {})
-        .filter(([, entity]) =>
-          ["P414", "P249"].some(
-            (claim) => (entity.claims?.[claim]?.length ?? 0) > 0,
-          ),
-        )
-        .map(([id]) => id),
-    );
+    entities = payload.entities ?? {};
   } catch {
-    return new Set();
+    return new Map();
   }
+
+  const contexts = new Map<string, WikidataItemContext>();
+  const parentIds = new Set<string>();
+  for (const [id, entity] of Object.entries(entities ?? {})) {
+    const claims = entity?.claims ?? {};
+    const listed = ["P414", "P249"].some(
+      (property) => (claims[property]?.length ?? 0) > 0,
+    );
+    const parentId = firstItemClaimId(entity, ["P749", "P127", "P361"]);
+    if (parentId) parentIds.add(parentId);
+    contexts.set(id, { listed, parentId });
+  }
+
+  let parentLabels: Record<string, string> = {};
+  const humanParentIds = new Set<string>();
+  if (parentIds.size > 0) {
+    const labelsUrl = new URL("https://www.wikidata.org/w/api.php");
+    labelsUrl.search = new URLSearchParams({
+      action: "wbgetentities",
+      ids: [...parentIds].join("|"),
+      props: "labels|claims",
+      format: "json",
+      origin: "*",
+    }).toString();
+    try {
+      const response = await resilientFetch(
+        labelsUrl.toString(),
+        {},
+        { revalidate: 86_400, timeoutMs: 4_500 },
+      );
+      const payload = (await response.json()) as unknown;
+      if (isRecord(payload) && isRecord(payload.entities)) {
+        parentLabels = Object.fromEntries(
+          Object.entries(payload.entities).flatMap(([id, value]) =>
+            isRecord(value) &&
+            isRecord(value.labels) &&
+            isRecord(value.labels.en) &&
+            typeof value.labels.en.value === "string"
+              ? [[id, value.labels.en.value]]
+              : [],
+          ),
+        );
+        for (const [id, value] of Object.entries(payload.entities)) {
+          if (
+            isRecord(value) &&
+            isRecord(value.claims) &&
+            Array.isArray(value.claims.P31) &&
+            value.claims.P31.some((claim) => {
+              if (
+                !isRecord(claim) ||
+                !isRecord(claim.mainsnak) ||
+                !isRecord(claim.mainsnak.datavalue)
+              )
+                return false;
+              const item = claim.mainsnak.datavalue.value;
+              return isRecord(item) && item.id === "Q5";
+            })
+          ) {
+            humanParentIds.add(id);
+          }
+        }
+      }
+    } catch {
+      parentLabels = {};
+    }
+  }
+
+  for (const context of contexts.values()) {
+    context.parentId =
+      context.parentId && !humanParentIds.has(context.parentId)
+        ? (parentLabels[context.parentId] ?? null)
+        : null;
+  }
+  return contexts;
 }
 
 /**
@@ -124,12 +227,14 @@ async function searchWikidata(
     .filter((entry) => entry.rank !== null)
     .sort((left, right) => (left.rank ?? 4) - (right.rank ?? 4))
     .slice(0, 6);
-  const listedIds = await wikidataListedIds(ranked.map(({ item }) => item.id));
+  const listedIds = await wikidataItemContexts(
+    ranked.map(({ item }) => item.id),
+  );
   return orderSuggestions(
     ranked.map(({ item, rank }) => ({
       item,
       rank,
-      listed: listedIds.has(item.id),
+      listed: listedIds.get(item.id)?.listed ?? false,
     })),
   )
     .slice(0, 4)
@@ -140,6 +245,7 @@ async function searchWikidata(
       query: item.label,
       source: "wikidata",
       listed: listed || undefined,
+      parentName: listedIds.get(item.id)?.parentId ?? undefined,
     }));
 }
 

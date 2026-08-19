@@ -8,7 +8,6 @@ export function SummaryCard({ report }: { report: IntelligenceReport }) {
   const brief = report.brief.state === "success" ? report.brief.data : null;
   const connectedSources = [
     report.website,
-    report.github,
     report.news,
     report.country,
     report.publicListing,
@@ -33,7 +32,7 @@ export function SummaryCard({ report }: { report: IntelligenceReport }) {
         <div className="relative flex flex-wrap items-center gap-2 font-mono text-[9px] tracking-[0.14em] text-white/30 uppercase">
           <span>Decision brief</span>
           <span aria-hidden="true">·</span>
-          <span>{connectedSources}/5 live evidence paths</span>
+          <span>{connectedSources}/4 live evidence paths</span>
         </div>
         <h2 className="relative mt-4 max-w-3xl text-2xl leading-[1.12] font-medium tracking-[-0.04em] text-balance text-white sm:text-[2rem]">
           {brief?.headline ?? report.identity.description}

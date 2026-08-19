@@ -11,15 +11,15 @@
 - **Framework:** Next.js 16 App Router with React 19 and strict TypeScript. Server Components handle page rendering; small Client Components handle search, motion, clipboard feedback, and interactive controls.
 - **UI:** Tailwind CSS 4, shadcn/ui primitives, Framer Motion, Lucide, and a custom editorial "evidence field" visual system rather than a component-library dashboard.
 - **Backend-for-frontend:** Next.js route handlers plus server-only typed services. Zod validates Gemini output and Vitest covers core normalisation and matching logic.
-- **Data and AI:** GLEIF, Wikidata/Wikipedia, official website metadata, GitHub, Google News RSS, REST Countries, and Gemini. Vercel is the deployment target.
+- **Data and AI:** GLEIF, Wikidata/Wikipedia, official website metadata, Google News RSS, REST Countries, Screener/IndianAPI for Indian listings, and Gemini. Vercel is the deployment target.
 
 ## Key decisions & trade-offs
 
 - **Global identity resolution:** fused Wikidata with GLEIF legal-entity search, then added an official-domain/public-web fallback. This is broader and safer than relying on encyclopedic data alone; the trade-off is that free public sources still cannot identify every local business.
 - **Evidence first, AI second:** Gemini receives only a normalized evidence bundle and its output is schema-validated. A deterministic source-derived brief remains available when Gemini is unavailable, rate-limited, or missing a key.
-- **Resilient multi-source model:** secondary calls run in parallel and each returns an explicit success, empty, unavailable, or rate-limited state. This gives useful partial reports instead of failing the entire page when GitHub or news is unavailable.
+- **Resilient multi-source model:** secondary calls run in parallel and each returns an explicit success, empty, unavailable, or rate-limited state. This gives useful partial reports instead of failing the entire page when news or the listing source is unavailable.
 - **News and brand assets:** used Google News RSS and first-party website metadata/favicons after the original Clearbit logo path was discontinued. Both are free and degrade independently, but RSS is not a contractual news API.
-- **Adaptive dossier layout:** companies with verified GitHub activity show developer signals; companies without it show source coverage and operating context instead. The report stays useful for technology companies and non-technology companies alike.
+- **Adaptive dossier layout:** Indian listed companies show a full Public Listing tab; subsidiaries show a lazy parent snapshot; companies without either show source coverage and operating context instead of empty panels. The report stays useful for technology companies and non-technology companies alike.
 - **Motion with purpose:** used pointer parallax, source orbits, viewport reveals, and reduced-motion fallbacks. Above-the-fold content stays server-visible to protect LCP.
 
 ## Hard parts / dead ends

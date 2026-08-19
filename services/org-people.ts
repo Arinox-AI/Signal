@@ -5,11 +5,17 @@ import { XMLParser } from "fast-xml-parser";
 import { z } from "zod";
 
 import { resilientFetch } from "@/lib/http/request";
+import {
+  companyMatchRank,
+  isOrganizationDescription,
+  normalizeCompanyName,
+} from "@/lib/company-query";
 import type {
   CompanyIdentity,
   NewsItem,
   OrgPeopleData,
   OrgPerson,
+  ParentCompany,
   PersonActivity,
 } from "@/lib/types/company";
 import type { FinancialTable } from "@/lib/types/public-listing";
@@ -28,10 +34,23 @@ const CLAIM_PROPS = {
   ceo: "P169",
   boardMember: "P3320",
   employees: "P1128",
+  parent: "P749",
+  ownedBy: "P127",
+  partOf: "P361",
+  instanceOf: "P31",
+  industry: "P452",
+  country: "P17",
   pointInTime: "P585",
   startTime: "P580",
   endTime: "P582",
 } as const;
+
+/** Ownership-property order for parent detection: explicit parent wins. */
+const PARENT_CLAIM_PROPS = [
+  CLAIM_PROPS.parent,
+  CLAIM_PROPS.ownedBy,
+  CLAIM_PROPS.partOf,
+] as const;
 
 const wikiItemSchema = z.object({
   entities: z
@@ -223,7 +242,10 @@ const linkedinSearchUrl = (name: string) =>
  * Builds the deduped, tiered people list from Wikidata claims, resolving labels
  * and Wikipedia pages in one batch request.
  */
-export async function resolvePeople(entity: unknown): Promise<OrgPerson[]> {
+export async function resolvePeople(
+  entity: unknown,
+  entityUrl: string | null = null,
+): Promise<OrgPerson[]> {
   const entries = peopleFromEntity(entity);
   if (!entries.length) return [];
 
@@ -235,7 +257,6 @@ export async function resolvePeople(entity: unknown): Promise<OrgPerson[]> {
       action: "wbgetentities",
       ids: ids.join("|"),
       props: "labels|sitelinks",
-      languages: "en",
       format: "json",
       origin: "*",
     }).toString();
@@ -254,13 +275,7 @@ export async function resolvePeople(entity: unknown): Promise<OrgPerson[]> {
   const seen = new Set<string>();
   for (const entry of entries) {
     const item = entities[entry.id];
-    const label =
-      isRecord(item) &&
-      isRecord(item.labels) &&
-      isRecord(item.labels.en) &&
-      typeof item.labels.en.value === "string"
-        ? item.labels.en.value
-        : null;
+    const label = itemLabel(item);
     if (!label || seen.has(label.toLowerCase())) continue;
     seen.add(label.toLowerCase());
     const wikiTitle =
@@ -278,6 +293,7 @@ export async function resolvePeople(entity: unknown): Promise<OrgPerson[]> {
         ? `https://en.wikipedia.org/wiki/${encodeURIComponent(wikiTitle.replace(/ /g, "_"))}`
         : null,
       linkedinUrl: linkedinSearchUrl(label),
+      sourceUrl: entityUrl,
     });
   }
   return people;
@@ -394,6 +410,7 @@ export function parseLeadershipPage(html: string): Array<{
 export interface CareerPostings {
   roles: Array<{ title: string; ai: boolean }>;
   aiRoleCount: number;
+  sourceUrl: string | null;
 }
 
 /**
@@ -423,13 +440,13 @@ export function parseCareerPage(html: string): CareerPostings {
     consider($(element).text());
   });
   const aiRoleCount = roles.filter((role) => role.ai).length;
-  return { roles, aiRoleCount };
+  return { roles, aiRoleCount, sourceUrl: null };
 }
 
 async function fetchCareerRoles(
   website: string | null,
 ): Promise<CareerPostings> {
-  if (!website) return { roles: [], aiRoleCount: 0 };
+  if (!website) return { roles: [], aiRoleCount: 0, sourceUrl: null };
   for (const path of ["careers", "career", "jobs", "join-us"]) {
     try {
       const url = new URL(`/${path}`, website);
@@ -439,12 +456,12 @@ async function fetchCareerRoles(
         { revalidate: 86_400, timeoutMs: 5_000 },
       );
       const parsed = parseCareerPage(await response.text());
-      if (parsed.roles.length) return parsed;
+      if (parsed.roles.length) return { ...parsed, sourceUrl: url.toString() };
     } catch {
       // try the next common careers path
     }
   }
-  return { roles: [], aiRoleCount: 0 };
+  return { roles: [], aiRoleCount: 0, sourceUrl: null };
 }
 
 function readNewsFeed(query: string, limit: number): Promise<NewsFeedItem[]> {
@@ -507,7 +524,7 @@ async function companyAiNews(companyName: string): Promise<NewsFeedItem[]> {
   const query = encodeURIComponent(
     `"${companyName}" (AI OR "artificial intelligence" OR "machine learning")`,
   );
-  return readNewsFeed(query, 3);
+  return readNewsFeed(query, 6);
 }
 
 /**
@@ -545,6 +562,7 @@ export interface OrgSignalInput {
   ownership: { promoterPct: number | null; publicPct: number | null };
   headcount: { total: number | null; year: number | null };
   hiring: CareerPostings;
+  parent?: ParentCompany | null;
 }
 
 /**
@@ -552,7 +570,7 @@ export interface OrgSignalInput {
  * signal rather than a raw dump. No LLM dependency.
  */
 export function buildOrgSignal(input: OrgSignalInput): string {
-  const { people, ownership, headcount, hiring } = input;
+  const { people, ownership, headcount, hiring, parent } = input;
   const parts: string[] = [];
   const founder = people.find((person) => person.tier === "founder");
   const ceo =
@@ -574,6 +592,17 @@ export function buildOrgSignal(input: OrgSignalInput): string {
     parts.push(`${ceo.name} leads as CEO.`);
   }
   if (chair) parts.push(`The board is chaired by ${chair.name}.`);
+  if (parent) {
+    const context = [
+      parent.industry,
+      parent.country ? `based in ${parent.country}` : null,
+    ]
+      .filter(Boolean)
+      .join(", ");
+    parts.push(
+      `Part of ${parent.name}${context ? ` (${context})` : ""} — check the parent for group-level exposure.`,
+    );
+  }
   if (boardCount)
     parts.push(
       `${boardCount} board member${boardCount === 1 ? "" : "s"} identified.`,
@@ -656,18 +685,372 @@ async function websiteLeadership(website: string | null): Promise<OrgPerson[]> {
       );
       const entries = parseLeadershipPage(await response.text());
       if (!entries.length) continue;
+      const pageUrl = url.toString();
       return entries.map((entry) => ({
         name: entry.name,
         role: entry.role,
         tier: "executive" as const,
         wikipediaUrl: null,
         linkedinUrl: linkedinSearchUrl(entry.name),
+        sourceUrl: pageUrl,
       }));
     } catch {
       // try the next common leadership path
     }
   }
   return [];
+}
+
+export function parentIdFromEntity(entity: unknown): string | null {
+  const values = claimValues(entity, CLAIM_PROPS.parent);
+  const first = values.find(isRecord);
+  return first && typeof first.id === "string" ? first.id : null;
+}
+
+/**
+ * First ownership claim resolving the parent: P749 (parent organization),
+ * then P127 (owned by), then P361 (part of). The first explicit claim wins;
+ * the rest are ignored.
+ */
+export function parentClaimId(entity: unknown): string | null {
+  for (const property of PARENT_CLAIM_PROPS) {
+    const value = claimValues(entity, property).find(isRecord);
+    if (value && typeof value.id === "string") return value.id;
+  }
+  return null;
+}
+
+/**
+ * True when a Wikidata entity is a human (instance of: human, Q5). Parent
+ * detection must reject people: a person is never a "parent company", and
+ * Wikidata's P127 (owned by) routinely points at the founding family member
+ * (e.g. Reliance Industries -> Mukesh Ambani).
+ */
+export function isHumanEntity(entity: unknown): boolean {
+  return claimValues(entity, CLAIM_PROPS.instanceOf).some(
+    (value) => isRecord(value) && value.id === "Q5",
+  );
+}
+
+/**
+ * Extraction of "owned by X" / "subsidiary of X" / "part of X" style clauses
+ * from free prose (Wikipedia extracts routinely state ownership where
+ * Wikidata carries no claim). Reads a run of capitalized words after the
+ * trigger phrase, stopping at sentence-continuation words ("It", "The", ...)
+ * so abbreviations like "Co." and "Ltd." stay part of the name.
+ */
+const PARENT_CLAUSE =
+  /\b(?:owned by|brand of|subsidiary of|a subsidiary of|division of|a division of|part of|a unit of|unit of)\b/i;
+const PARENT_CONTINUATION_STOP = new Set([
+  "its",
+  "it",
+  "the",
+  "a",
+  "an",
+  "which",
+  "and",
+  "was",
+  "is",
+  "has",
+  "had",
+  "established",
+  "founded",
+  "now",
+  "today",
+  "in",
+  "at",
+  "with",
+  "as",
+  "later",
+  "originally",
+  "also",
+  "however",
+  "following",
+  "offered",
+  "operates",
+  "operating",
+  "following",
+]);
+
+export function extractParentFromText(text: string): string | null {
+  if (!text) return null;
+  const match = PARENT_CLAUSE.exec(text);
+  if (!match) return null;
+  const words = text.slice(match.index + match[0].length).split(/\s+/);
+  const parts: string[] = [];
+  for (const word of words) {
+    const cleaned = word.replace(/^[^A-Za-z&]+/, "").replace(/[,;:]+$/, "");
+    if (!cleaned) continue;
+    if (!/^[A-Z&]/.test(cleaned)) break;
+    if (PARENT_CONTINUATION_STOP.has(cleaned.toLowerCase())) break;
+    if (parts.length >= 6) break;
+    parts.push(cleaned);
+  }
+  const name = parts.join(" ").replace(/[.,;:]+$/, "");
+  return parts.length >= 2 && name.length >= 2 ? name : null;
+}
+
+export function itemSearchEntries(
+  searchTerm: string,
+): Promise<Array<{ id: string; label: string; description: string }>> {
+  const url = new URL("https://www.wikidata.org/w/api.php");
+  url.search = new URLSearchParams({
+    action: "wbsearchentities",
+    search: searchTerm,
+    language: "en",
+    uselang: "en",
+    type: "item",
+    limit: "6",
+    format: "json",
+    origin: "*",
+  }).toString();
+  return resilientFetch(url.toString(), {}, { revalidate: 86_400 })
+    .then(async (response) => {
+      const payload = (await response.json()) as unknown;
+      if (!isRecord(payload) || !Array.isArray(payload.search)) return [];
+      return payload.search.flatMap((entry) =>
+        isRecord(entry) &&
+        typeof entry.id === "string" &&
+        typeof entry.label === "string" &&
+        typeof entry.description === "string"
+          ? [
+              {
+                id: entry.id,
+                label: entry.label,
+                description: entry.description,
+              },
+            ]
+          : [],
+      );
+    })
+    .catch(() => []);
+}
+
+/**
+ * Resolves a parent item id (from a claim or a name search) into the parent
+ * record with context. Best-effort — any failed step degrades to fewer
+ * fields.
+ */
+async function resolveParentFromId(
+  id: string,
+  detectedVia: "wikidata" | "text",
+): Promise<ParentCompany | null> {
+  try {
+    const items = await wikidataItems([id]);
+    const parentItem = items[id];
+    const name = itemLabel(parentItem);
+    if (!name || isHumanEntity(parentItem)) return null;
+    const industryId = claimValues(parentItem, CLAIM_PROPS.industry).find(
+      isRecord,
+    ) as { id?: unknown } | undefined;
+    const countryId = claimValues(parentItem, CLAIM_PROPS.country).find(
+      isRecord,
+    ) as { id?: unknown } | undefined;
+    const contextIds = [industryId?.id, countryId?.id].filter(
+      (id): id is string => typeof id === "string",
+    );
+    const contextItems = await wikidataItems(contextIds);
+    const industry =
+      typeof industryId?.id === "string"
+        ? itemLabel(contextItems[industryId.id])
+        : null;
+    const country =
+      typeof countryId?.id === "string"
+        ? itemLabel(contextItems[countryId.id])
+        : null;
+    const wikiTitle = itemWikiTitle(parentItem);
+    return {
+      name,
+      industry,
+      country,
+      wikipediaUrl: wikiTitle
+        ? `https://en.wikipedia.org/wiki/${encodeURIComponent(wikiTitle.replace(/ /g, "_"))}`
+        : null,
+      wikidataUrl: `https://www.wikidata.org/wiki/${id}`,
+      query: wikiTitle ?? name,
+      detectedVia,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** Resolves a text-extracted parent name, optionally via Wikidata search. */
+async function resolveParentByName(name: string): Promise<ParentCompany> {
+  const entries = await itemSearchEntries(name);
+  const ranked = entries
+    .filter((entry) => isOrganizationDescription(entry.description))
+    .map((entry) => ({
+      entry,
+      rank: companyMatchRank(name, entry.label),
+    }))
+    .filter(
+      (item): item is { entry: (typeof entries)[number]; rank: 0 | 1 } =>
+        item.rank === 0 || item.rank === 1,
+    )
+    .sort((left, right) => left.rank - right.rank);
+  const id = ranked[0]?.entry.id ?? null;
+  if (!id) {
+    return {
+      name,
+      industry: null,
+      country: null,
+      wikipediaUrl: null,
+      wikidataUrl: null,
+      query: name,
+      detectedVia: "text",
+    };
+  }
+  const resolved = await resolveParentFromId(id, "text");
+  return (
+    resolved ?? {
+      name,
+      industry: null,
+      country: null,
+      wikipediaUrl: null,
+      wikidataUrl: null,
+      query: name,
+      detectedVia: "text",
+    }
+  );
+}
+
+/** True when the parent candidate normalizes to the company itself. */
+export function isSelfParent(
+  identityName: string,
+  parentName: string,
+): boolean {
+  return (
+    normalizeCompanyName(identityName) === normalizeCompanyName(parentName)
+  );
+}
+
+/**
+ * Multi-source parent detection. Claim-based (P749 > P127 > P361) when the
+ * entity carries ownership claims; otherwise "owned by X" style prose in the
+ * public record. One level only — the parent's own parent is out of scope.
+ */
+export async function detectParent(
+  entity: unknown,
+  identity: CompanyIdentity | null = null,
+): Promise<ParentCompany | null> {
+  const claimId = parentClaimId(entity);
+  if (claimId) return resolveParentFromId(claimId, "wikidata");
+  if (!identity) return null;
+  const textName = extractParentFromText(identity.overview);
+  if (!textName || isSelfParent(identity.name, textName)) return null;
+  return resolveParentByName(textName);
+}
+
+/**
+ * Text-only parent detection for identities with no Wikidata entity in hand
+ * (domain-based identities, failed org-people lookups, ...). Runs only when
+ * the identity already exists so a failed helper never blocks the report.
+ */
+export async function resolveParentFromOverview(
+  identity: CompanyIdentity,
+): Promise<ParentCompany | null> {
+  return detectParent({}, identity);
+}
+
+const parentItemSchema = z.object({
+  entities: z
+    .record(
+      z.string(),
+      z.object({
+        labels: z
+          .record(z.string(), z.object({ value: z.string() }))
+          .optional(),
+        sitelinks: z
+          .record(
+            z.string(),
+            z.object({
+              title: z.string().optional().default(""),
+            }),
+          )
+          .optional(),
+        claims: z.record(z.string(), z.array(z.unknown())).optional(),
+      }),
+    )
+    .optional(),
+});
+
+async function wikidataItems(ids: string[]): Promise<Record<string, unknown>> {
+  if (!ids.length) return {};
+  const url = new URL("https://www.wikidata.org/w/api.php");
+  url.search = new URLSearchParams({
+    action: "wbgetentities",
+    ids: [...new Set(ids)].join("|"),
+    props: "labels|sitelinks|claims",
+    format: "json",
+    origin: "*",
+  }).toString();
+  const response = await resilientFetch(
+    url.toString(),
+    {},
+    { revalidate: 86_400 },
+  );
+  const payload = parentItemSchema.parse(await response.json());
+  return payload.entities ?? {};
+}
+
+export function itemLabel(item: unknown): string | null {
+  if (
+    isRecord(item) &&
+    isRecord(item.labels) &&
+    isRecord(item.labels.en) &&
+    typeof item.labels.en.value === "string"
+  ) {
+    return item.labels.en.value;
+  }
+  if (
+    isRecord(item) &&
+    isRecord(item.labels) &&
+    isRecord(item.labels.mul) &&
+    typeof item.labels.mul.value === "string"
+  ) {
+    return item.labels.mul.value;
+  }
+  return itemWikiTitle(item);
+}
+
+function itemWikiTitle(item: unknown): string | null {
+  return isRecord(item) &&
+    isRecord(item.sitelinks) &&
+    isRecord(item.sitelinks.enwiki) &&
+    typeof item.sitelinks.enwiki.title === "string"
+    ? item.sitelinks.enwiki.title
+    : null;
+}
+
+/**
+ * How much verified public ground this panel stands on, 0..1. Site-confirmed
+ * leadership is the strongest evidence; every further corroborating source
+ * (headcount, ownership, hiring, AI news, activity) adds weight.
+ */
+export function computeOrgConfidence(input: {
+  siteLeaders: number;
+  people: number;
+  headcount: number | null;
+  ownership: { promoterPct: number | null; publicPct: number | null };
+  hiringRoles: number;
+  aiNews: number;
+  activity: number;
+}): number {
+  let score = 0;
+  if (input.siteLeaders > 0) score += 0.4;
+  if (input.people >= 2) score += 0.15;
+  else if (input.people === 1) score += 0.1;
+  if (input.headcount !== null) score += 0.15;
+  if (
+    input.ownership.promoterPct !== null ||
+    input.ownership.publicPct !== null
+  )
+    score += 0.15;
+  if (input.hiringRoles > 0) score += 0.1;
+  if (input.aiNews > 0) score += 0.1;
+  if (input.activity > 0) score += 0.1;
+  return Math.min(1, score);
 }
 
 export async function getOrgPeopleIntelligence(
@@ -680,6 +1063,8 @@ export async function getOrgPeopleIntelligence(
     year: null,
   };
   let headcountSamples: Array<{ year: number | null; total: number }> = [];
+  let wikidataUrl: string | null = null;
+  let parent: ParentCompany | null = null;
   if (/en\.wikipedia\.org\/wiki\//.test(identity.wikipediaUrl)) {
     try {
       const propsUrl = new URL("https://en.wikipedia.org/w/api.php");
@@ -709,6 +1094,7 @@ export async function getOrgPeopleIntelligence(
           ? page.pageprops.wikibase_item
           : null;
       if (itemId) {
+        wikidataUrl = `https://www.wikidata.org/wiki/${itemId}`;
         const entityResponse = await resilientFetch(
           `https://www.wikidata.org/wiki/Special:EntityData/${itemId}.json`,
           {},
@@ -720,13 +1106,14 @@ export async function getOrgPeopleIntelligence(
             ? payload.entities[itemId]
             : null;
         if (entity) {
-          people = await resolvePeople(entity);
+          people = await resolvePeople(entity, wikidataUrl);
           const extracted = extractHeadcount(entity);
           headcount = {
             total: extracted.total,
             year: extracted.year,
           };
           headcountSamples = extracted.samples;
+          parent = await detectParent(entity, identity).catch(() => null);
         }
       }
     } catch {
@@ -763,23 +1150,39 @@ export async function getOrgPeopleIntelligence(
     fetchCareerRoles(identity.website),
     companyAiNews(identity.name).catch(() => [] as NewsFeedItem[]),
   ]);
+  const confidence = computeOrgConfidence({
+    siteLeaders: websiteLeaders.length,
+    people: merged.length,
+    headcount: headcount.total,
+    ownership,
+    hiringRoles: hiring.roles.length,
+    aiNews: aiNews.length,
+    activity: activity.length,
+  });
   const signal = buildOrgSignal({
     people: merged,
     ownership,
     headcount,
     hiring,
+    parent,
   });
 
   return {
     people: merged,
     activity,
-    ownership,
+    ownership: {
+      ...ownership,
+      sourceUrl: shareholding?.sourceUrl ?? null,
+    },
     headcount: {
       ...headcount,
       samples: headcountSamples,
+      sourceUrl: headcountSamples.length ? wikidataUrl : null,
     },
     hiring,
     aiNews,
+    parent,
+    confidence,
     signal,
   };
 }

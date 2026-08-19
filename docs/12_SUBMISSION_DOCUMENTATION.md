@@ -15,7 +15,7 @@ The product is intentionally not a generic dashboard. Its interface is an editor
 
 ### User problem
 
-Researching an unfamiliar company normally means moving between search engines, legal-entity records, company websites, GitHub, news feeds, and AI tools. This is slow and creates a high risk of confusing similarly named organisations or treating a missing source as a negative signal.
+Researching an unfamiliar company normally means moving between search engines, legal-entity records, company websites, stock-exchange filings, news feeds, and AI tools. This is slow and creates a high risk of confusing similarly named organisations or treating a missing source as a negative signal.
 
 ### Product outcome
 
@@ -46,16 +46,16 @@ Deliberately excluded:
 
 Signal uses a mix of public, free, and key-optional sources. No upstream credential is sent to the browser.
 
-| Source                                | Purpose in Signal                                                            | Why it was chosen                                                                                            | Authentication | Failure behavior                                                                             |
-| ------------------------------------- | ---------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ | -------------- | -------------------------------------------------------------------------------------------- |
-| **GLEIF**                             | Global legal-entity search and stable LEI-based identity selection           | Gives broad legal-entity coverage beyond technology companies and English-language encyclopedia entries      | None           | Search continues with Wikidata and official-domain discovery                                 |
-| **Wikidata + Wikipedia**              | Organisation matching, canonical descriptions, and structured public context | Useful for notable companies and provides a conservative public-identity path                                | None           | The report continues with alternate sources                                                  |
-| **Official company website metadata** | Official name, description, founding year, location, industry, logo/favicon  | First-party evidence is valuable for startups and local companies that lack encyclopedia or LEI coverage     | None           | Signal falls back to initials and other identity signals                                     |
-| **Public-web discovery**              | Bounded name-to-official-domain fallback                                     | Helps resolve legitimate companies absent from structured indexes, such as Alba Corporation UAE              | None           | Explicit no-match guidance is shown; no company is fabricated                                |
-| **GitHub REST API**                   | Verified public organisation, repositories, stars, and development footprint | Adds an independent builder signal when an organisation is genuinely active on GitHub                        | Optional token | The panel reports no verified public signal or rate-limit status without blocking the report |
-| **Google News RSS**                   | Recent company coverage and chronological timeline evidence                  | A free, broadly available alternative to short-lived news trials                                             | None           | The news panel becomes an empty or unavailable state; other evidence remains visible         |
-| **REST Countries v5**                 | Country-level operating context                                              | Adds capital, population, languages, currency, and flag context to a verified country signal                 | API key        | The country panel degrades independently when the key or source is unavailable               |
-| **Google Gemini**                     | Concise executive synthesis and watch item                                   | Converts the already-collected evidence into a readable decision brief without using it as a source of facts | API key        | A deterministic source-derived brief replaces AI output                                      |
+| Source                                  | Purpose in Signal                                                            | Why it was chosen                                                                                                 | Authentication | Failure behavior                                                                     |
+| --------------------------------------- | ---------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- | -------------- | ------------------------------------------------------------------------------------ |
+| **GLEIF**                               | Global legal-entity search and stable LEI-based identity selection           | Gives broad legal-entity coverage beyond technology companies and English-language encyclopedia entries           | None           | Search continues with Wikidata and official-domain discovery                         |
+| **Wikidata + Wikipedia**                | Organisation matching, canonical descriptions, and structured public context | Useful for notable companies and provides a conservative public-identity path                                     | None           | The report continues with alternate sources                                          |
+| **Official company website metadata**   | Official name, description, founding year, location, industry, logo/favicon  | First-party evidence is valuable for startups and local companies that lack encyclopedia or LEI coverage          | None           | Signal falls back to initials and other identity signals                             |
+| **Public-web discovery**                | Bounded name-to-official-domain fallback                                     | Helps resolve legitimate companies absent from structured indexes, such as Alba Corporation UAE                   | None           | Explicit no-match guidance is shown; no company is fabricated                        |
+| **Google News RSS**                     | Recent company coverage and chronological timeline evidence                  | A free, broadly available alternative to short-lived news trials                                                  | None           | The news panel becomes an empty or unavailable state; other evidence remains visible |
+| **REST Countries v5**                   | Country-level operating context                                              | Adds capital, population, languages, currency, and flag context to a verified country signal                      | API key        | The country panel degrades independently when the key or source is unavailable       |
+| **Screener.in / NSE / BSE / IndianAPI** | Indian listed-company financials, price history, shareholding, and documents | Covers the Indian listed segment with unofficial but stable endpoints, with IndianAPI as symbol verifier/fallback | Optional key   | The listing tab degrades independently without blocking the core report              |
+| **Google Gemini**                       | Concise executive synthesis and watch item                                   | Converts the already-collected evidence into a readable decision brief without using it as a source of facts      | API key        | A deterministic source-derived brief replaces AI output                              |
 
 ### API-specific implementation notes
 
@@ -65,9 +65,9 @@ Search begins with Wikidata and GLEIF in parallel. A GLEIF selection remains tie
 
 Official-domain and public-web discovery are deliberately labelled as website evidence, not legal-record proof. They are used as a graceful fallback for companies with a strong official site but weak structured-data coverage.
 
-#### GitHub matching
+#### Public listing resolution (India)
 
-GitHub matching removes legal suffixes such as `Inc.` and `Ltd.` before trying a small, deduplicated candidate set. A matched organisation with zero repositories is treated as an empty public-development signal, not as three misleading zero metrics. `GITHUB_TOKEN` is optional and only raises the public API rate limit.
+Indian listings are resolved through the shared name ranker (exact and scope-superset matches only) against Screener's company search, then verified with the NSE symbol from IndianAPI when configured. A conflicting exchange symbol rejects the candidate; only verified or exact-name listings are shown as financial data. Without a symbol key, the same strict ranker still gates Screener candidates.
 
 #### Gemini safeguards
 
@@ -94,10 +94,10 @@ Browser
               │
   ┌───────────┼────────────┬─────────────┬────────────┐
   ▼           ▼            ▼             ▼            ▼
-GLEIF     Wikidata     Website/GitHub   News      REST Countries
-Wikipedia  Discovery                       │
-                                          ▼
-                                      Gemini brief
+GLEIF     Wikidata     Website/News   REST Countries
+Wikipedia  Discovery        │
+                           ▼
+                       Gemini brief
               │
               ▼
       Normalized IntelligenceReport
@@ -135,15 +135,14 @@ Caching lives on the server, close to the source adapters, so clients never deci
 | Data                      | Typical cache lifetime |
 | ------------------------- | ---------------------: |
 | Google News RSS           |             10 minutes |
-| GitHub repositories       |             15 minutes |
-| GitHub organisation       |             30 minutes |
+| Screener listing/chart    |          15–30 minutes |
 | Official website metadata |               24 hours |
 | Gemini synthesis          |               24 hours |
 | GLEIF legal-entity result |                6 hours |
 | Wikipedia/Wikidata        |        24 hours–7 days |
 | REST Countries            |                 7 days |
 
-The cache strategy favours freshness for news and repository activity, while reducing repeated calls for relatively stable company and country records.
+The cache strategy favours freshness for news and listing data, while reducing repeated calls for relatively stable company and country records.
 
 ### Deployment architecture
 
@@ -175,7 +174,7 @@ The report is not a single-source wrapper. One view combines:
 
 - A selected legal/company identity.
 - Official website evidence.
-- Public GitHub activity, when verifiable.
+- A verified Indian listing (financials, price history, shareholding) when one exists.
 - Current news coverage.
 - Country operating context.
 - An evidence-aware AI brief.
@@ -238,21 +237,21 @@ The final local release check passes:
 - Prettier formatting check.
 - Strict TypeScript with no `any` usage.
 - ESLint with zero warnings.
-- 9 Vitest tests covering company matching, source-result normalisation, website structured-data extraction, and formatting.
+- 85 Vitest tests covering company matching, org & people extraction, listing selection/parsing, source-result normalisation, website structured-data extraction, provenance, and formatting.
 - Optimised Next.js production build.
 
 ### Manual product checks
 
-| Scenario                   | What was verified                                                                                                                                       |
-| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Technology companies       | Vercel, Stripe, Perplexity, Nintendo, and OpenAI verified identity resolution, GitHub activity, news, timeline composition, and adaptive report layout. |
-| Non-technology companies   | Coca-Cola, Toyota, and McDonald's confirmed that the experience remains useful without public developer activity.                                       |
-| Local/less-indexed company | Alba Corporation UAE was found through official-domain discovery (`albacorp.net`), then enriched with website metadata and UAE country context.         |
-| No match                   | A nonsense query produces a direct no-match state and suggests the official-domain route.                                                               |
-| Search interaction         | A seven-result Toyota dropdown was tested with pointer scrolling, keyboard navigation through the final item, and mobile-width behavior.                |
-| Source degradation         | Missing-key and unavailable-source states were checked without losing the remaining evidence or the report shell.                                       |
-| Responsive layout          | No horizontal overflow at 360, 768, 1024, 1440, and 2560 px.                                                                                            |
-| Accessibility              | Focus states, semantic labels, keyboard journey, screen-reader announcements, and reduced-motion behavior were reviewed.                                |
+| Scenario                   | What was verified                                                                                                                               |
+| -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| Technology companies       | Vercel, Stripe, Perplexity, Nintendo, and OpenAI verified identity resolution, news, timeline composition, and adaptive report layout.          |
+| Non-technology companies   | Coca-Cola, Toyota, and McDonald's confirmed that the experience remains useful without a public listing.                                        |
+| Local/less-indexed company | Alba Corporation UAE was found through official-domain discovery (`albacorp.net`), then enriched with website metadata and UAE country context. |
+| No match                   | A nonsense query produces a direct no-match state and suggests the official-domain route.                                                       |
+| Search interaction         | A seven-result Toyota dropdown was tested with pointer scrolling, keyboard navigation through the final item, and mobile-width behavior.        |
+| Source degradation         | Missing-key and unavailable-source states were checked without losing the remaining evidence or the report shell.                               |
+| Responsive layout          | No horizontal overflow at 360, 768, 1024, 1440, and 2560 px.                                                                                    |
+| Accessibility              | Focus states, semantic labels, keyboard journey, screen-reader announcements, and reduced-motion behavior were reviewed.                        |
 
 ### Lighthouse result
 
@@ -288,14 +287,15 @@ cp .env.example .env.local
 npm run dev
 ```
 
-| Variable                 |            Required | Purpose                                        |
-| ------------------------ | ------------------: | ---------------------------------------------- |
-| `GEMINI_API_KEY`         |       For AI briefs | Server-side Gemini access                      |
-| `REST_COUNTRIES_API_KEY` | For country context | REST Countries v5 access                       |
-| `GITHUB_TOKEN`           |                  No | Raises public GitHub API rate limits           |
-| `NEXT_PUBLIC_APP_URL`    |       In production | Canonical metadata and sitemap URL             |
-| `NEXT_PUBLIC_SOURCE_URL` |       In production | Public repository link in the header           |
-| `GEMINI_MODEL`           |                  No | Overrides the default `gemini-2.5-flash` model |
+| Variable                 |            Required | Purpose                                         |
+| ------------------------ | ------------------: | ----------------------------------------------- |
+| `GEMINI_API_KEY`         |       For AI briefs | Server-side Gemini access                       |
+| `REST_COUNTRIES_API_KEY` | For country context | REST Countries v5 access                        |
+| `INDIANAPI_API_KEY`      | For Indian listings | NSE/BSE symbol verification and outage fallback |
+| `NEXT_PUBLIC_APP_URL`    |       In production | Canonical metadata and sitemap URL              |
+| `GEMINI_MODEL`           |                  No | Defaults to `gemini-3.6-flash`                  |
+| `NEXT_PUBLIC_APP_URL`    |       In production | Canonical metadata and sitemap URL              |
+| `NEXT_PUBLIC_SOURCE_URL` |       In production | Public repository link in the header            |
 
 Never commit `.env.local` or a real credential. Only `*.env.example` is versioned.
 

@@ -7,7 +7,9 @@ Metrics
 NewsGrid
 Timeline
 CountryCard
-GitHubCard
+OrgPeopleView
+ParentPanel
+PublicListingView
 Footer
 Skeletons
 ErrorState

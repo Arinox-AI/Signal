@@ -4,12 +4,19 @@ vi.mock("server-only", () => ({}));
 
 import {
   buildOrgSignal,
-  supplementFromWikidata,
+  computeOrgConfidence,
   extractHeadcount,
   extractOwnership,
+  extractParentFromText,
+  isHumanEntity,
+  isSelfParent,
+  itemLabel,
+  parentClaimId,
+  parentIdFromEntity,
   parseCareerPage,
   parseLeadershipPage,
   peopleFromEntity,
+  supplementFromWikidata,
 } from "./org-people";
 import type { FinancialTable } from "@/lib/types/public-listing";
 import type { OrgPerson } from "@/lib/types/company";
@@ -164,6 +171,7 @@ describe("supplementFromWikidata", () => {
     tier: "executive",
     wikipediaUrl: `https://en.wikipedia.org/wiki/${name.replace(/ /g, "_")}`,
     linkedinUrl: null,
+    sourceUrl: null,
     ...overrides,
   });
 
@@ -353,7 +361,93 @@ describe("parseCareerPage", () => {
         <div id="job-widget" data-widget="greenhouse"></div>
       </body></html>
     `;
-    expect(parseCareerPage(html)).toEqual({ roles: [], aiRoleCount: 0 });
+    expect(parseCareerPage(html)).toEqual({
+      roles: [],
+      aiRoleCount: 0,
+      sourceUrl: null,
+    });
+  });
+});
+
+describe("computeOrgConfidence", () => {
+  const base = {
+    ownership: { promoterPct: null, publicPct: null },
+    headcount: null,
+    hiringRoles: 0,
+    aiNews: 0,
+    activity: 0,
+  };
+
+  it("scores zero when nothing is verified", () => {
+    expect(computeOrgConfidence({ ...base, siteLeaders: 0, people: 0 })).toBe(
+      0,
+    );
+  });
+
+  it("counts site-confirmed leadership as the strongest evidence", () => {
+    expect(computeOrgConfidence({ ...base, siteLeaders: 5, people: 5 })).toBe(
+      0.55,
+    );
+  });
+
+  it("caps at 1 and weighs corroborating sources", () => {
+    expect(
+      computeOrgConfidence({
+        ...base,
+        siteLeaders: 6,
+        people: 6,
+        headcount: 1000,
+        ownership: { promoterPct: 50, publicPct: 10 },
+        hiringRoles: 3,
+        aiNews: 2,
+        activity: 1,
+      }),
+    ).toBe(1);
+  });
+
+  it("keeps a lone wiki founder below the show threshold", () => {
+    expect(computeOrgConfidence({ ...base, siteLeaders: 0, people: 1 })).toBe(
+      0.1,
+    );
+  });
+});
+
+describe("parentIdFromEntity", () => {
+  it("reads the parent organization claim", () => {
+    const entity = entityWith({
+      P749: [{ mainsnak: { datavalue: { value: { id: "Q36215" } } } }],
+    });
+    expect(parentIdFromEntity(entity)).toBe("Q36215");
+  });
+
+  it("returns null without a parent claim", () => {
+    expect(parentIdFromEntity(entityWith({ P112: [] }))).toBeNull();
+    expect(parentIdFromEntity(null)).toBeNull();
+  });
+});
+
+describe("itemLabel", () => {
+  it("prefers the English label", () => {
+    const item = {
+      labels: { en: { value: "Tata Sons" }, mul: { value: "Tata" } },
+      sitelinks: { enwiki: { title: "Tata Sons" } },
+    };
+    expect(itemLabel(item)).toBe("Tata Sons");
+  });
+
+  it("falls back to the multilingual label", () => {
+    const item = { labels: { mul: { value: "Tata Sons" } } };
+    expect(itemLabel(item)).toBe("Tata Sons");
+  });
+
+  it("falls back to the English Wikipedia title when no label exists", () => {
+    const item = { labels: {}, sitelinks: { enwiki: { title: "Tata Sons" } } };
+    expect(itemLabel(item)).toBe("Tata Sons");
+  });
+
+  it("returns null when nothing is available", () => {
+    expect(itemLabel({})).toBeNull();
+    expect(itemLabel(null)).toBeNull();
   });
 });
 
@@ -369,6 +463,7 @@ describe("buildOrgSignal", () => {
       tier: "founder" as const,
       wikipediaUrl: null,
       linkedinUrl: null,
+      sourceUrl: item.sourceUrl ?? null,
       ...item,
     }));
 
@@ -382,7 +477,7 @@ describe("buildOrgSignal", () => {
       ],
       ownership: { promoterPct: 52.3, publicPct: 7.2 },
       headcount: { total: 239312, year: 2022 },
-      hiring: { roles: [], aiRoleCount: 0 },
+      hiring: { roles: [], aiRoleCount: 0, sourceUrl: null },
     });
     expect(signal).toContain(
       "Founded by Alice; Bob leads as CEO — approach the founder for vision, the CEO for execution.",
@@ -405,9 +500,34 @@ describe("buildOrgSignal", () => {
       ],
       ownership: { promoterPct: null, publicPct: null },
       headcount: { total: null, year: null },
-      hiring: { roles: [], aiRoleCount: 0 },
+      hiring: { roles: [], aiRoleCount: 0, sourceUrl: null },
     });
     expect(signal).toContain("Srini Pallia leads as CEO");
+  });
+
+  it("names the parent company with context in the signal", () => {
+    const signal = buildOrgSignal({
+      people: [
+        ...people([
+          { name: "Alice", role: "Chief Executive Officer", tier: "executive" },
+        ]),
+      ],
+      ownership: { promoterPct: null, publicPct: null },
+      headcount: { total: null, year: null },
+      hiring: { roles: [], aiRoleCount: 0, sourceUrl: null },
+      parent: {
+        name: "Suzuki Motor Corporation",
+        industry: "Automobile manufacturing",
+        country: "Japan",
+        wikipediaUrl: "https://en.wikipedia.org/wiki/Suzuki",
+        wikidataUrl: "https://www.wikidata.org/wiki/Q36215",
+        query: "Suzuki Motor Corporation",
+        detectedVia: "wikidata",
+      },
+    });
+    expect(signal).toContain(
+      "Part of Suzuki Motor Corporation (Automobile manufacturing, based in Japan) — check the parent for group-level exposure.",
+    );
   });
 
   it("falls back when nothing is known", () => {
@@ -415,7 +535,7 @@ describe("buildOrgSignal", () => {
       people: [],
       ownership: { promoterPct: null, publicPct: null },
       headcount: { total: null, year: null },
-      hiring: { roles: [], aiRoleCount: 0 },
+      hiring: { roles: [], aiRoleCount: 0, sourceUrl: null },
     });
     expect(signal).toBe(
       "No key people were identified in public records — verify the target before outreach.",
@@ -430,18 +550,19 @@ describe("buildOrgSignal", () => {
       ]),
       ownership: { promoterPct: null, publicPct: null },
       headcount: { total: null, year: null },
-      hiring: { roles: [], aiRoleCount: 0 },
+      hiring: { roles: [], aiRoleCount: 0, sourceUrl: null },
     });
     expect(signal).toContain("2 board members identified");
   });
 
   it("ranks the AI-adoption signal from open roles", () => {
-    const hiring = {
+    const hiring: Parameters<typeof buildOrgSignal>[0]["hiring"] = {
       roles: [
         { title: "Machine Learning Engineer", ai: true },
         { title: "Senior Software Engineer", ai: false },
       ],
       aiRoleCount: 1,
+      sourceUrl: "https://example.com/careers",
     };
     const signal = buildOrgSignal({
       people: [],
@@ -453,7 +574,7 @@ describe("buildOrgSignal", () => {
       "2 open roles found on the careers page, 1 AI-related — a strong AI-adoption signal.",
     );
 
-    const quarterly = {
+    const quarterly: Parameters<typeof buildOrgSignal>[0]["hiring"] = {
       roles: [
         { title: "Machine Learning Engineer", ai: true },
         { title: "SAP Consultant", ai: false },
@@ -461,6 +582,7 @@ describe("buildOrgSignal", () => {
         { title: "Sales Executive", ai: false },
       ],
       aiRoleCount: 1,
+      sourceUrl: "https://example.com/careers",
     };
     expect(
       buildOrgSignal({
@@ -476,8 +598,118 @@ describe("buildOrgSignal", () => {
         people: [],
         ownership: { promoterPct: null, publicPct: null },
         headcount: { total: null, year: null },
-        hiring: { roles: [], aiRoleCount: 0 },
+        hiring: { roles: [], aiRoleCount: 0, sourceUrl: null },
       }),
     ).not.toContain("AI-adoption");
+  });
+});
+
+describe("parentClaimId", () => {
+  it("prefers the explicit parent organization claim over ownership", () => {
+    const entity = entityWith({
+      P749: [roleClaim("Q749Parent")],
+      P127: [roleClaim("Q127Owner")],
+      P361: [roleClaim("Q361Group")],
+    });
+    expect(parentClaimId(entity)).toBe("Q749Parent");
+  });
+
+  it("falls back to owned-by when no parent organization exists", () => {
+    const entity = entityWith({
+      P127: [roleClaim("Q127Owner")],
+      P361: [roleClaim("Q361Group")],
+    });
+    expect(parentClaimId(entity)).toBe("Q127Owner");
+  });
+
+  it("treats part-of as the weakest ownership signal", () => {
+    const entity = entityWith({ P361: [roleClaim("Q361Group")] });
+    expect(parentClaimId(entity)).toBe("Q361Group");
+  });
+
+  it("returns null when no ownership claim exists", () => {
+    expect(parentClaimId(entityWith({}))).toBeNull();
+  });
+});
+
+describe("isHumanEntity", () => {
+  it("flags entities whose instance-of claims include a human", () => {
+    const entity = entityWith({ P31: [roleClaim("Q5")] });
+    expect(isHumanEntity(entity)).toBe(true);
+  });
+
+  it("accepts organizations and entities without instance-of claims", () => {
+    const company = entityWith({
+      P31: [roleClaim("Q4830453"), roleClaim("Q783794")],
+    });
+    expect(isHumanEntity(company)).toBe(false);
+    expect(isHumanEntity(entityWith({}))).toBe(false);
+  });
+});
+
+describe("extractParentFromText", () => {
+  it("extracts an owned-by clause and keeps abbreviation dots", () => {
+    const extract =
+      "Blackberrys is an Indian luxury clothing brand owned by Mohan Clothing Co. Pvt Ltd. It was established in 1991.";
+    expect(extractParentFromText(extract)).toBe("Mohan Clothing Co. Pvt Ltd");
+  });
+
+  it("extracts a subsidiary-of clause", () => {
+    expect(
+      extractParentFromText(
+        "The firm is a subsidiary of Tata Sons, headquartered in Mumbai.",
+      ),
+    ).toBe("Tata Sons");
+  });
+
+  it("extracts a division-of clause", () => {
+    expect(
+      extractParentFromText(
+        "It operates as a division of Reliance Industries.",
+      ),
+    ).toBe("Reliance Industries");
+  });
+
+  it("extracts part-of and brand-of clauses", () => {
+    expect(extractParentFromText("The brand is part of Arvind Group.")).toBe(
+      "Arvind Group",
+    );
+    expect(
+      extractParentFromText("A brand of KPR Mills, the company sells..."),
+    ).toBe("KPR Mills");
+  });
+
+  it("stops the name at sentence-continuation words", () => {
+    expect(
+      extractParentFromText(
+        "Owned by Lux Corp. It was founded in 1999 and later expanded.",
+      ),
+    ).toBe("Lux Corp");
+  });
+
+  it("rejects empty and continuation-only captures", () => {
+    expect(extractParentFromText("Owned by its employees")).toBeNull();
+    expect(extractParentFromText("Owned by the state")).toBeNull();
+  });
+
+  it("rejects prose without an ownership clause", () => {
+    expect(
+      extractParentFromText(
+        "Blackberrys established flagship stores across Indian cities.",
+      ),
+    ).toBeNull();
+  });
+
+  it("rejects lowercase name starts", () => {
+    expect(
+      extractParentFromText("The chain is owned by berry corp."),
+    ).toBeNull();
+  });
+
+  it("detects self-referencing parent names", () => {
+    expect(isSelfParent("Reliance Industries", "Reliance Industries Ltd")).toBe(
+      true,
+    );
+    expect(isSelfParent("Reliance Industries", "Tata Sons")).toBe(false);
   });
 });

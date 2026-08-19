@@ -14,6 +14,8 @@ import { Panel, SourceUnavailable } from "@/components/report/panel";
 import { cn } from "@/lib/utils";
 import type { OrgPeopleData, SourceResult } from "@/lib/types/company";
 
+const MIN_CONFIDENCE = 0.35;
+
 function dateLabel(value: string): string {
   const date = new Date(value);
   return Number.isFinite(date.getTime())
@@ -23,6 +25,32 @@ function dateLabel(value: string): string {
         year: "numeric",
       })
     : "";
+}
+
+function sourceHost(url: string): string {
+  try {
+    return new URL(url).hostname.replace(/^www\./, "");
+  } catch {
+    return url;
+  }
+}
+
+function SourceLine({ url, label }: { url: string | null; label: string }) {
+  if (!url) return null;
+  return (
+    <p className="mt-4 flex items-center gap-1 text-[10px] text-white/25">
+      Source:
+      <a
+        href={url}
+        target="_blank"
+        rel="noreferrer"
+        className="inline-flex items-center gap-0.5 text-blue-100/55 transition-colors hover:text-blue-100"
+      >
+        {label}
+        <ExternalLink className="size-2.5" aria-hidden="true" />
+      </a>
+    </p>
+  );
 }
 
 function PersonLinks({
@@ -97,14 +125,26 @@ export function OrgPeopleView({
     );
   }
 
-  const { people, activity, ownership, headcount, hiring, aiNews, signal } =
-    result.data;
+  const {
+    people,
+    activity,
+    ownership,
+    headcount,
+    hiring,
+    aiNews,
+    confidence,
+    signal,
+  } = result.data;
+  if (confidence < MIN_CONFIDENCE) return null;
+
   const founders = people.filter((person) => person.tier === "founder");
   const executives = people.filter((person) => person.tier === "executive");
   const board = people.filter((person) => person.tier === "board");
   const maxSample = headcount.samples.length
     ? Math.max(...headcount.samples.map((sample) => sample.total))
     : 0;
+  const leadershipSource =
+    people.find((person) => person.sourceUrl)?.sourceUrl ?? null;
 
   return (
     <Panel label="Org & people" className="dossier-org-people">
@@ -158,6 +198,10 @@ export function OrgPeopleView({
               <EmptyBlock />
             )}
           </div>
+          <SourceLine
+            url={leadershipSource}
+            label={`${sourceHost(leadershipSource ?? "")}`}
+          />
         </div>
 
         <div>
@@ -230,6 +274,7 @@ export function OrgPeopleView({
               </dd>
             </div>
           </dl>
+          <SourceLine url={ownership.sourceUrl} label="Shareholding pattern" />
         </div>
 
         <div>
@@ -295,6 +340,10 @@ export function OrgPeopleView({
               rarely published.
             </p>
           </dl>
+          <SourceLine
+            url={headcount.sourceUrl}
+            label="Wikidata entity record"
+          />
         </div>
 
         <div>
@@ -370,6 +419,7 @@ export function OrgPeopleView({
               )}
             </>
           )}
+          <SourceLine url={hiring.sourceUrl} label="Careers page" />
         </div>
       </div>
 

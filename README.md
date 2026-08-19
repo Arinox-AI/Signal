@@ -1,16 +1,19 @@
 # Signal
 
-Signal turns scattered public company data into one concise, source-aware intelligence brief. Search for a company and receive an editorial report combining verified identity, website metadata, GitHub activity, recent coverage, operating-country context, and a grounded Gemini synthesis.
+Signal turns scattered public company data into one concise, source-aware intelligence brief. Search for a company and receive an editorial report combining verified identity, website metadata, recent coverage, operating-country context, and a grounded Gemini synthesis.
 
 ## Feature list
 
 - Editorial, scroll-driven product landing page built around an interactive evidence field, source constellation, and a deliberate dark research environment
 - Debounced, server-backed company suggestions with full keyboard control, explicit no-match guidance, and stable shareable URLs
 - Industry-neutral identity resolution across Wikidata, the global GLEIF legal-entity index, public-web discovery, and official company domains
-- Multi-API fusion across GLEIF, Wikipedia, Wikidata, GitHub, Google News RSS, REST Countries, public website metadata, and Gemini
-- Live GitHub repository metrics and a fused news/development timeline
+- Multi-API fusion across GLEIF, Wikipedia, Wikidata, Google News RSS, REST Countries, public website metadata, and Gemini
+- A fused news signal timeline
+- Dedicated **AI & technical signals** panel: merged AI/technology coverage from dedicated news feeds, de-duplicated and recency-sorted
+- **Business & operations** deep dive: what the company does, how it operates, who it serves, and what remains unknown — Gemini-synthesized from the evidence bundle with a deterministic fallback
+- **Priorities signal** panel: a compact, evidence-grounded statement of what the company is prioritizing right now — drawn from earnings-call transcripts, blog/newsroom posts, job-posting skill emphasis, and public records of internal announcements (memos, town halls, leaks), each with citations
 - Public Listing tab for Indian NSE/BSE companies with price chart, peers, quarterly data, P&L, balance sheet, cash flow, ratios, shareholding, investor documents, and annual-report links
-- Adaptive report composition: companies with verified public developer activity receive repository metrics, while companies without it receive business context and an explicit source-coverage panel
+- Adaptive report composition: Indian listed companies receive a full Public Listing tab; subsidiaries receive a lazy parent-company snapshot; companies without a listing show operating context and an explicit source-coverage panel
 - Evidence-constrained AI summary with a deterministic non-AI fallback
 - Independent loading, empty, rate-limit, and failure states for every secondary source
 - Responsive editorial interface, reduced-motion support, visible focus states, and semantic landmarks
@@ -30,7 +33,7 @@ Browser
         Typed orchestration service
                 │
   ┌─────────────┼───────────────┬──────────────┬──────────────────┐
-GLEIF        GitHub          News RSS     REST Countries
+GLEIF        News RSS     REST Countries
 Wikidata     Public web      Website metadata     Gemini
 Wikipedia
  Screener.in / NSE / BSE listing data
@@ -55,19 +58,17 @@ The interface also uses a reduced-motion-aware Framer Motion reveal system acros
 
 ## Caching and resilience
 
-| Source              |  Cache lifetime |
-| ------------------- | --------------: |
-| News RSS            |      10 minutes |
-| GitHub repositories |      15 minutes |
-| GitHub organization |      30 minutes |
-| Website metadata    |        24 hours |
-| Gemini brief        |        24 hours |
-| GLEIF legal entity  |         6 hours |
-| Wikipedia/Wikidata  | 24 hours–7 days |
-| REST Countries      |          7 days |
-| Screener listing    |      15 minutes |
+| Source             |  Cache lifetime |
+| ------------------ | --------------: |
+| News RSS           |      10 minutes |
+| Website metadata   |        24 hours |
+| Gemini brief       |        24 hours |
+| GLEIF legal entity |         6 hours |
+| Wikipedia/Wikidata | 24 hours–7 days |
+| REST Countries     |          7 days |
+| Screener listing   |      15 minutes |
 
-Requests have explicit timeouts, at most one retry, bounded backoff, and `Retry-After` awareness. GitHub, news, country, website, and Gemini failures remain local to their panels. If Gemini is unavailable, the report uses a clearly labelled source-derived summary.
+Requests have explicit timeouts, at most one retry, bounded backoff, and `Retry-After` awareness. News, country, website, and Gemini failures remain local to their panels. If Gemini is unavailable, the report uses a clearly labelled source-derived summary.
 
 ## Local setup
 
@@ -87,10 +88,10 @@ Open `http://localhost:3000`.
 | ------------------------ | ------------------- | ------------------------------------ |
 | `GEMINI_API_KEY`         | For AI summaries    | Server-side Gemini access            |
 | `REST_COUNTRIES_API_KEY` | For country context | Stable REST Countries v5 access      |
-| `GITHUB_TOKEN`           | No                  | Raises GitHub's public rate limit    |
 | `NEXT_PUBLIC_APP_URL`    | In production       | Canonical metadata and sitemap URL   |
 | `NEXT_PUBLIC_SOURCE_URL` | After publishing    | Public repository link in the header |
-| `GEMINI_MODEL`           | No                  | Defaults to `gemini-2.5-flash`       |
+| `GEMINI_MODEL`           | No                  | Defaults to `gemini-3.6-flash`       |
+| `INDIANAPI_API_KEY`      | For Indian listings | NSE/BSE symbol resolution + fallback |
 
 Never commit `.env.local` or real credentials.
 
@@ -101,8 +102,6 @@ Never commit `.env.local` or real credentials.
 - **Official domains:** an official domain can produce a useful company record even when no encyclopedia or LEI match exists. This is the recommended path for new and unlisted startups.
 - **Public-web discovery:** a bounded, server-side keyless search fallback discovers likely official domains for companies missing from structured indexes. Results are source-labelled as website candidates, filtered against directory/social hosts, and remain optional if the provider is unavailable.
 - **Website structured data:** Signal reads order-independent metadata and schema.org organization records for legal name, description, founding year, headquarters country, locality, and industry. This allows companies such as Alba Corporation UAE to resolve through their official website.
-- **GitHub:** unauthenticated requests are limited, so `GITHUB_TOKEN` is supported but optional. A GitHub failure never blocks the report.
-- **GitHub organization matching:** legal suffixes such as `Inc.` and `Ltd.` are removed when resolving organizations. Zero-repository organizations are treated as “no public signal,” preventing empty developer metrics from dominating the report.
 - **Google News RSS:** used instead of a short-lived news trial. Feed entries are normalized and publisher suffixes are removed from titles.
 - **REST Countries:** the old open v3 endpoint is deprecated and now returns the v5 response envelope. Signal uses the maintained v5 server API with Bearer authentication.
 - **Clearbit:** the documented Clearbit Logo endpoint is discontinued. Signal uses official website icons, Google favicon, and initials as a safe fallback chain.
@@ -122,10 +121,10 @@ npm run build
 Verified locally:
 
 - Strict TypeScript and ESLint with zero warnings
-- 9 Vitest tests across company matching, website structured-data extraction, formatting, and normalized source states
+- 85 Vitest tests across company matching, org & people extraction, listing selection/parsing, website structured-data extraction, formatting, provenance, and normalized source states
 - Production dependency audit: 0 known vulnerabilities
 - Landing-page CTA navigation, search validation, successful report navigation, and copy-link feedback
-- Adaptive reports verified with Vercel, Stripe, Perplexity AI, Nintendo, Coca-Cola, Toyota, and McDonald’s; non-tech companies substitute source-health/company metrics for empty developer data
+- Adaptive reports verified with Vercel, Stripe, Perplexity AI, Nintendo, Coca-Cola, Toyota, and McDonald’s; companies without a listing substitute source-health/company metrics for the listing panel
 - Search dropdown verified with seven results, pointer scrolling, keyboard auto-scrolling to the final option, an explicit no-match state, and official-domain fallback
 - Alba Corporation UAE verified from name search through `albacorp.net`, including 2016 founding data, United Arab Emirates context, and a grounded Gemini brief
 - Live REST Countries and Gemini credential paths verified; graceful missing-key fallbacks remain implemented

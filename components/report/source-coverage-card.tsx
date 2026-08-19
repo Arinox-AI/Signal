@@ -17,7 +17,6 @@ export function SourceCoverageCard({ report }: { report: IntelligenceReport }) {
       state: "success" as const,
     },
     { label: "Official website", state: report.website.state },
-    { label: "GitHub organization", state: report.github.state },
     { label: "Recent coverage", state: report.news.state },
     { label: "Country context", state: report.country.state },
     { label: "Public listing", state: report.publicListing.state },

@@ -1,5 +1,6 @@
 import {
   ArrowUpRight,
+  Building2,
   CalendarDays,
   Fingerprint,
   Globe2,
@@ -8,6 +9,7 @@ import {
   TriangleAlert,
 } from "lucide-react";
 import Image from "next/image";
+import Link from "next/link";
 
 import { IdentityProvenance } from "@/components/report/identity-provenance";
 import { SearchBar } from "@/components/search-bar";
@@ -72,6 +74,17 @@ export function ReportHeader({ report }: { report: IntelligenceReport }) {
               {identity.confidence.label}
               {identity.confidence.ambiguous ? " · Review match" : ""}
             </span>
+            {report.parent && (
+              <Link
+                href={`/company/${encodeURIComponent(report.parent.query.toLowerCase())}`}
+                className="inline-flex items-center gap-1.5 rounded-full border border-blue-200/15 bg-blue-200/[0.05] px-3 py-2 text-blue-100/75 transition hover:bg-blue-200/[0.1]"
+                title={`Group exposure runs through ${report.parent.name}`}
+              >
+                <Building2 className="size-3.5" aria-hidden="true" />
+                Part of {report.parent.name}
+                <ArrowUpRight className="size-3" aria-hidden="true" />
+              </Link>
+            )}
             {identity.countryName && (
               <span className="inline-flex items-center gap-1.5 px-3 py-2">
                 <MapPin className="size-3.5" aria-hidden="true" />

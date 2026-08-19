@@ -125,8 +125,24 @@ export function domainSearchTerm(domain: string): string {
   return domain.split(".")[0]?.replace(/[-_]+/g, " ") ?? domain;
 }
 
+/**
+ * Person descriptors found in Wikidata descriptions of humans ("Indian
+ * businessman", "American entrepreneur", ...). These run BEFORE the positive
+ * organization regex because words like "business" are also organization
+ * descriptors ("Indian business", "business services").
+ */
+const PERSON_DESCRIPTORS =
+  /\b(businessman|businesswoman|businessperson|magnate|tycoon|mogul|entrepreneur|industrialist|financier|investor|banker|economist|philanthropist|billionaire|millionaire|politician|statesman|stateswoman|senator|congressman|congresswoman|governor|minister|diplomat|activist|journalist|author|writer|poet|novelist|playwright|screenwriter|artist|painter|sculptor|musician|singer|songwriter|composer|rapper|actor|actress|comedian|presenter|athlete|sportsperson|sportsman|sportswoman|cricketer|footballer|golfer|boxer|wrestler|cyclist|scientist|physicist|chemist|biologist|astronomer|mathematician|doctor|surgeon|physician|lawyer|attorney|judge|philosopher|historian|professor|personality|celebrity|monk|priest|nun|rabbi|imam|king|queen|prince|princess|emperor|empress|duke|duchess|monarch|heir|noble)\b/i;
+
+/** Wikidata person descriptions almost always end in "(born YYYY)". */
+const BORN_SUFFIX = /\(born\s+\d{4}\)/i;
+
 export function isOrganizationDescription(description: string): boolean {
-  return /(airline|automaker|bank|brewery|business|chain|company|conglomerate|cooperative|corporation|enterprise|firm|group|hotel|manufacturer|marketplace|media|multinational|nonprofit|organisation|organization|pharmaceutical|publisher|restaurant|retailer|services|startup|studio|supermarket|technology|telecommunications)/i.test(
+  if (!description) return false;
+  if (PERSON_DESCRIPTORS.test(description) || BORN_SUFFIX.test(description))
+    return false;
+  if (/\bbrands?\s+of\b/i.test(description)) return false;
+  return /\b(airline|automaker|bank|brand|brewery|business|chain|company|conglomerate|cooperative|corporation|enterprise|firm|group|hotel|manufacturer|marketplace|media|multinational|nonprofit|organisation|organization|pharmaceutical|publisher|restaurant|retailer|services|startup|studio|supermarket|technology|telecommunications)\b/i.test(
     description,
   );
 }
